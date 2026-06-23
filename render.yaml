@@ -1,0 +1,21 @@
+# Reference config for a Render Static Site.
+# (When creating the site from the Render dashboard you'll type these in by hand;
+#  this file just documents the settings.)
+#
+#   Repository:        tymuron/antigravity-workspace
+#   Root Directory:    scratch/vastu-map-builder
+#   Build Command:     npm ci && npm run build
+#   Publish Directory: dist
+#
+# The map is keyless — no environment variables are required.
+services:
+  - type: web
+    name: vastu-map-builder
+    runtime: static
+    rootDir: scratch/vastu-map-builder
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
