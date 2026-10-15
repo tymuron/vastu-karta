@@ -29,6 +29,9 @@
 [hidden] { display: none !important; }
 
 html, body { height: 100%; }
+/* quick repeated taps on buttons must never zoom the page on phones */
+html { touch-action: manipulation; -webkit-text-size-adjust: 100%; }
+button, .btn, summary { touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
 body {
   background: var(--cream);
   color: var(--burgundy);
@@ -187,6 +190,7 @@ button { font: inherit; color: inherit; }
 .hint b { color: var(--burgundy); font-weight: 600; }
 .hint a { color: var(--burgundy); font-weight: 500; text-decoration: none; border-bottom: 1px solid var(--burgundy); }
 .hint.ok { border-left-color: var(--burgundy); color: var(--burgundy); }
+.hint.warn { border-left-color: var(--wine); color: var(--wine); font-weight: 500; animation: nudge .45s ease; }
 .hint-gap { margin-bottom: 10px; }
 
 .sep { height: 1px; background: var(--line); margin: 2px 0; }
@@ -250,8 +254,44 @@ button { font: inherit; color: inherit; }
 .btn.on { background: var(--burgundy); color: var(--gold); }
 .btn:disabled { opacity: .3; pointer-events: none; }
 .brow { display: flex; gap: 10px; }
-.turn-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
-.btn-turn { min-height: 38px; padding: 8px 0; font-size: 12px; letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; }
+.btn-turn { min-height: 44px; padding: 8px 0; font-size: 13px; letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; -webkit-touch-callout: none; }
+
+/* step 6: one row of turn buttons around the current tilt */
+.rot-ctl { display: flex; flex-direction: column; gap: 8px; }
+.rot-ctl .lbl { margin-bottom: 0; }
+.rot-row { display: grid; grid-template-columns: 1fr 1fr 1.25fr 1fr 1fr; gap: 6px; align-items: center; }
+.rot-val {
+  text-align: center;
+  font-family: var(--serif);
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--burgundy);
+}
+.more { border-top: 1px solid var(--line); padding-top: 4px; }
+.more summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 8px 0;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.more summary::-webkit-details-marker { display: none; }
+.more summary::after { content: ' ＋'; }
+.more[open] summary::after { content: ' −'; }
+.more-body { display: flex; flex-direction: column; gap: 14px; padding: 4px 0 6px; }
+.turn-fine { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 6px; }
+.turn-fine #autoRotBtn { min-height: 44px; padding: 8px 6px; font-size: 11px; letter-spacing: .08em; white-space: normal; }
+
+/* step 5 */
+.wall-row { display: flex; align-items: center; gap: 12px; }
+.wall-az { flex: 1; font-size: 13px; color: var(--muted); }
+.wall-az b { color: var(--burgundy); font-weight: 600; font-size: 15px; }
+.wall-row .btn { flex: none; padding: 10px 16px; }
 .text-btn {
   align-self: flex-start;
   padding: 2px 0;
@@ -575,11 +615,53 @@ button.si:hover, button.si:focus-visible { background: var(--cream); color: var(
 
 /* plan over the map (step 5) */
 .rppanel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-.rpwrap { flex: 1; position: relative; overflow: hidden; }
-#rpMap { position: absolute; inset: 0; z-index: 1; }
-#rotCanvas { position: absolute; left: 0; top: 0; z-index: 2; cursor: grab; touch-action: none; }
-#rotCanvas.grabbing { cursor: grabbing; }
-#baselineCanvas { position: absolute; left: 0; top: 0; z-index: 3; pointer-events: none; }
+#rpMap { flex: 1; min-height: 0; }
+.plan-layer { position: absolute; left: 0; top: 0; }
+.plan-layer.grabbing { cursor: grabbing !important; }
+.wall-tip {
+  background: rgba(255, 255, 255, .94);
+  border: none;
+  border-radius: var(--r);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .3);
+  padding: 3px 8px;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--red);
+}
+.wall-tip::before { display: none; }
+
+/* the instruction strip over the plan / map */
+.guide {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 26px;
+  z-index: 1100;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.guide span {
+  max-width: 560px;
+  padding: 10px 16px;
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: center;
+  color: var(--cream);
+  background: rgba(66, 35, 38, .92);
+  border: 1px solid rgba(202, 188, 144, .35);
+  border-radius: var(--r);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .3);
+}
+.guide.warn span { background: var(--wine); border-color: rgba(255, 255, 255, .4); animation: nudge .45s ease; }
+@keyframes nudge {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-7px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(2px); }
+}
 
 /* leaflet, in the brand */
 .leaflet-container { font-family: var(--sans); }
@@ -625,6 +707,9 @@ button.si:hover, button.si:focus-visible { background: var(--cream); color: var(
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .gold-marker { position: relative; }
+.gold-marker.leaflet-marker-draggable { cursor: grab; }
+.gold-marker.locked { pointer-events: none; }
+.gm-hit { position: absolute; left: -22px; top: -22px; width: 44px; height: 44px; border-radius: 50%; } /* a finger-sized handle */
 .gm-dot {
   position: absolute;
   left: -8px;
@@ -810,6 +895,24 @@ button.si:hover, button.si:focus-visible { background: var(--cream); color: var(
   .about-band { display: none; }
   .foot { padding: 14px 16px; font-size: 10px; gap: 8px; }
   .modal-box { padding: 28px 22px; }
+
+  /* The working steps (contour, house, wall, rotate) fit one phone screen: the plan or map
+     on top, only this step's few buttons under it, the instruction written on the map. */
+  body.fit { height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; }
+  body.fit .seo-h1, body.fit .foot { display: none; }
+  body.fit .mobile-step { padding: 10px 16px 9px; }
+  body.fit .body { flex: 1 1 auto; min-height: 0; }
+  body.fit .area { flex: 1 1 auto; height: auto; min-height: 0; max-height: none; }
+  body.fit .sidebar { flex: 0 0 auto; max-height: 50%; }
+  body.fit .sidebar-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px 16px 10px; }
+  body.fit .pane { gap: 10px; }
+  body.fit .m-hide { display: none !important; }
+  body.fit[data-step="4"] .sidebar-body { display: none; }
+  body.fit .sidebar-foot { position: static; box-shadow: none; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); }
+  body.fit .sidebar-foot .btn { min-height: 48px; }
+  body.fit .cpanel { padding: 10px; }
+  body.fit .guide { left: 8px; right: 8px; bottom: 22px; }
+  body.fit .guide span { padding: 8px 12px; font-size: 13.5px; }
 }
 
 @media (max-width: 380px) {

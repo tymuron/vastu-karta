@@ -5,43 +5,41 @@ replicates [nativastu.com](https://nativastu.com) step for step (state of 15 Oct
 re-implemented in our own code and wording and dressed in Anna Romeo's design
 (#422326 / #CABC90 / #F4F2ED, Cormorant + Vela Sans).
 
-## The six steps
+## The seven steps
 
-1. **Загрузить план** — drop or pick a JPG/PNG/WebP of the floor plan.
-2. **Регион** — «в России» / «за рубежом». Russia limits address search to Russia and
-   uses the satellite backdrop on step 5; abroad searches worldwide and uses the hybrid.
-3. **Контур** — click the outer corners. Red points, a guide line to the cursor, a ring when
-   you are near the first point; clicking it (or Enter, or the button) closes the contour.
-   Отмена / Сброс, Cmd/Ctrl+Z. Closing finds the centre of gravity (shoelace centroid).
-4. **Опорная линия** — address search with suggestions while typing, Схема / Спутник /
-   Гибрид, zoom, «где я». «Задать линию» → two clicks along the façade → azimuth + address.
-5. **Повернуть план** — the plan over the satellite map, draggable; a red dashed line at
-   the façade azimuth. Rotation slider (shows the deviation from the cardinal directions),
-   «Рассчитать точно» (lays the longest wall along the line, turning as little as possible;
-   runs once automatically), transparency slider.
-6. **Васту Карта** — the plan turned north-up with layers: 8 sectors (45°, N centred up),
-   axes and labels, Brahmasthan 1/9 (square) or by the flat's shape, Brahmabindu at real
-   size (1/81), inflow/outflow, five elements with area shares, deviation caption;
-   saturation slider; PNG export (share sheet on phones, long-press fallback, download on
-   desktop) at up to 3000 px. Sectors / flow / elements replace each other and one always
-   stays on; the two Brahmasthan variants replace each other; elements hide Brahmasthan.
+nativastu has six; on 15 Oct 2026 Tymur asked for smaller steps because most people use
+it on phones, so its map step is split in two («Ваш дом» + «Стена с окнами»).
+
+1. **Загрузить план** — JPG/PNG/WebP, or a PDF (first page).
+2. **Регион** — «в России» / «за рубежом». Russia limits address search to Russia and uses
+   the satellite view on step 6; abroad searches worldwide and uses the hybrid view.
+3. **Контур** — click/tap the outer corners; zoom (wheel, pinch, + / −), drag a corner to
+   fix it. Closing finds the centre of gravity (shoelace centroid).
+4. **Ваш дом** — the map opens where the visitor is (guessed from the phone's time zone,
+   not always Moscow as on nativastu). Search with suggestions (house-number matches first),
+   or tap the house; the gold pin can be dragged onto the exact building.
+5. **Стена с окнами** — tap the two corners of the wall with the windows → its azimuth.
+6. **Повернуть план** — the plan lies on a zoomable satellite map, pinned to the ground and
+   sized so its longest wall matches the marked wall; the red line lies on the real wall.
+   Drag the plan to move it, drag the map to pan. Turn with −90° / −1° / +1° / +90°
+   (holding ±1° keeps turning) or the slider; «Точная настройка»: ±0,1°, «Рассчитать
+   точно», plan size, transparency.
+7. **Васту Карта** — nativastu's layers: 8 sectors, axes and labels, Brahmasthan 1/9 or by
+   shape, Brahmabindu 1/81, inflow/outflow, five elements with shares, deviation caption,
+   saturation, PNG export (share sheet on phones). Same switching rules as the original.
+
+On phones, steps 3–6 fit one screen: the plan or map on top, the instruction written on it,
+only that step's buttons below. «Далее» without what the step needs says why on the map.
+Taps never zoom the page (`touch-action: manipulation`).
 
 Everything runs in the browser — the plan never leaves the device.
 
-## Improvements over nativastu (approved 15 Oct 2026)
+## Improvements over nativastu (all approved by Tymur, 15 Oct 2026)
 
-- **Turn buttons** −90° / −1° / −0,1° / +0,1° / +1° / +90° under the rotation slider.
-- **Drag corners to fix them** — while tracing, and again after closing (back on step 3,
-  the closed contour shows small handles; the centre is recalculated).
-- **Zoom while tracing** — mouse wheel / trackpad pinch, two-finger pinch on phones, and
-  «+ / − / весь план» buttons; drag empty plan to pan when zoomed. Dots and lines keep
-  their on-screen size.
-- **Upload first on phones** — until a plan is loaded the empty stage is hidden, so the
-  upload button is the first thing on screen.
-- **Remember progress** — plan + every choice kept in the browser (IndexedDB) and restored
-  on reload at the same step; «Начать заново с другим планом» on step 1 clears it.
-- **PDF plans** — the first page is rendered as the plan (pdf.js, loaded only when a PDF
-  is picked; legacy build for older iPhones).
+Turn buttons, draggable corners, zoom while tracing, upload-first on phones, saved progress
+(IndexedDB, «Начать заново» clears it), PDF plans; then, after testing on a phone: 7 smaller
+steps, map opening near the visitor, pin the house by hand, zoomable step-6 map with plan size
+and a geo-pinned red line, on-map guidance, hold-to-repeat turns, no double-tap zoom.
 
 Not taken (offered): tapping the window wall for automatic orientation.
 
@@ -53,7 +51,8 @@ Fonts are self-hosted in `public/fonts` (Google Fonts is unreliable in Russia).
 ```
 src/main.ts     the six steps, navigation, zoom/drag, PNG export, saved progress
 src/result.ts   draws the finished map (all layers)
-src/mapkit.ts   maps and address search
+src/mapkit.ts   maps, address search, where the map opens
+src/planlayer.ts the plan on the step-6 map (pinned to the ground)
 src/geo.ts      centroid, area, azimuth, element shares
 src/pdf.ts      first page of a PDF → plan picture
 src/store.ts    progress kept in the browser (IndexedDB)

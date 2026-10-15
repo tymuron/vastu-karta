@@ -4,18 +4,21 @@ import * as L from 'leaflet'
 import { BRAND, LINKS } from './config'
 import { bearing, centroid, longestEdgeAngle, norm360, type Pt } from './geo'
 import {
-  createBackdropMap,
+  createRotateMap,
   createSearchMap,
   escapeHtml,
   goldMarker,
+  pinIcon,
   resolvePlace,
   reverseAddress,
   searchPlaces,
+  startView,
   type LatLng,
   type Place,
   type Region,
 } from './mapkit'
 import { pdfToDataUrl } from './pdf'
+import { PlanLayer } from './planlayer'
 import { CONTOUR, drawResult, type Layers } from './result'
 import { kvClear, kvGet, kvSet } from './store'
 
@@ -29,10 +32,12 @@ const capture = (el: Element, id: number) => {
     /* not capturable */
   }
 }
+const phone = () => matchMedia('(max-width: 900px)').matches
 
 // ───────────────────────────── state ─────────────────────────────
 
-const STEP_LABELS = ['Загрузить план', 'Регион', 'Контур', 'Опорная линия', 'Повернуть план', 'Васту Карта']
+const STEPS = ['Загрузить план', 'Регион', 'Контур', 'Ваш дом', 'Стена с окнами', 'Повернуть план', 'Васту Карта']
+const LAST = STEPS.length
 const RED = '#C0392B'
 const LAYER_IDS = ['togS', 'togA', 'togB', 'togBShape', 'togBindu', 'togFlow', 'togEl', 'togDev']
 
@@ -43,19 +48,18 @@ let closed = false
 let center: Pt = { x: 0, y: 0 }
 let region: Region = 'ru'
 
-let mapCenter: LatLng = [55.751244, 37.618423]
+let pin: LatLng | null = null // the visitor's building
 let mapView: { center: LatLng; zoom: number } | null = null
-let searchPin: { ll: LatLng; caption: string } | null = null
 let baselineAz: number | null = null
-let blPts: LatLng[] = [] // the reference line: empty or two points
-let draftPts: LatLng[] = [] // a line being drawn right now
-let drawingLine = false
+let blPts: LatLng[] = [] // the wall with the windows: empty or two points
+let draftPts: LatLng[] = [] // a wall being marked right now
 
 let rot = 0 // clockwise turn of the plan that puts north straight up
 let rotTouched = false
 let autoRotDone = false
 let planTrans = 0.82
-let planPos = { x: 0, y: 0 }
+let planCenter: LatLng | null = null
+let planScale = 1 // the «Размер плана» slider, × the size matched to the marked wall
 let opacity = 0.55
 
 const cv = $<HTMLCanvasElement>('cv')
@@ -75,11 +79,26 @@ if (LINKS.videoGuide) {
 
 // ───────────────────────────── navigation ─────────────────────────────
 
-function goto(t: number) {
-  if (t < 1 || t > 6) return
-  if (t > 1 && !img) return
-  if (t > 3 && !closed) return
+/** Why the visitor can't go past step `t` yet, or null. */
+function blocker(t: number): string | null {
+  if (t > 1 && !img) return 'Сначала загрузите план квартиры'
+  if (t > 3 && !closed) return 'Сначала обведите все углы и замкните контур'
+  if (t > 4 && !pin) return 'Сначала отметьте свой дом: найдите адрес или нажмите на дом на карте'
+  if (t > 5 && blPts.length !== 2) return 'Отметьте на карте два угла стены с окнами'
+  return null
+}
+
+function goto(t: number, quiet = false) {
+  if (t < 1 || t > LAST) return
+  const why = blocker(t)
+  if (why) {
+    if (quiet) return
+    if (step === 1) flashUploadHint(why)
+    else nudge(why)
+    return
+  }
   step = t
+  endNudge() // a warning about the previous step is over
 
   document.querySelectorAll<HTMLElement>('.step').forEach((el, i) => {
     el.classList.toggle('active', i + 1 === t)
@@ -87,38 +106,105 @@ function goto(t: number) {
   })
   document.querySelectorAll<HTMLElement>('.pane').forEach((el, i) => el.classList.toggle('active', i + 1 === t))
   $('mStepNum').textContent = String(t).padStart(2, '0')
-  $('mStepLabel').textContent = STEP_LABELS[t - 1]
-  $('mStepTotal').textContent = `шаг ${t} из 6`
+  $('mStepLabel').textContent = STEPS[t - 1]
+  $('mStepTotal').textContent = `шаг ${t} из ${LAST}`
   $('sidebarBody').scrollTo(0, 0)
 
-  $('cpanel').hidden = !(t <= 3 || t === 6)
-  $('mpanel').hidden = t !== 4
-  $('rppanel').hidden = t !== 5
+  // phones: the working steps fit one screen — the plan or map on top, a few buttons under it
+  document.body.dataset.step = String(t)
+  document.body.classList.toggle('fit', t >= 3 && t <= 6)
+  if (document.body.classList.contains('fit')) window.scrollTo(0, 0)
+
+  $('cpanel').hidden = !(t <= 3 || t === LAST)
+  $('mpanel').hidden = !(t === 4 || t === 5)
+  $('rppanel').hidden = t !== 6
   $('cpanel').classList.toggle('tracing', t === 3)
   $('zoomCtl').hidden = t !== 3 || !img
+  $('mbar').hidden = t !== 4
+  sd.hidden = true
   resetView()
 
   if (t <= 3 && img) {
     fitCanvas()
     drawContour()
   }
-  if (t === 4) {
-    initSearchMap()
-    setTimeout(() => searchMap?.invalidateSize(), 50)
-  }
-  if (t === 5) initRotatePanel()
-  if (t === 6) {
+  if (t === 4 || t === 5) enterMap()
+  if (t === 6) enterRotate()
+  if (t === LAST) {
     fitCanvas()
     renderResult()
   }
 
   $<HTMLButtonElement>('prevBtn').disabled = t === 1
-  $('nextBtn').textContent = t === 6 ? 'Сохранить PNG' : 'Далее →'
+  $('nextBtn').textContent = t === LAST ? 'Сохранить PNG' : 'Далее →'
+  updateGuide()
   scheduleSave()
 }
 
 $('prevBtn').addEventListener('click', () => goto(step - 1))
-$('nextBtn').addEventListener('click', () => (step === 6 ? savePng() : goto(step + 1)))
+$('nextBtn').addEventListener('click', () => (step === LAST ? savePng() : goto(step + 1)))
+
+// ── the instruction strip written over the plan / map ──
+
+const guide = $('guide')
+let nudgeTimer = 0
+
+function guideFor(): string {
+  if (step === 3 && img) {
+    if (closed) return 'Контур замкнут. Точки можно перетащить, если какая-то стоит неточно'
+    if (!pts.length) return 'Нажмите на первый угол квартиры — дальше по кругу, вдоль внешних стен'
+    if (pts.length < 3) return 'Нажмите на следующий угол'
+    return 'Обойдите все углы и нажмите на первую точку, чтобы замкнуть контур'
+  }
+  if (step === 4) {
+    return pin
+      ? 'Метка не на вашем доме? Перетащите её или нажмите на нужный дом. Если всё верно — «Далее»'
+      : 'Введите адрес и выберите дом из подсказок — или просто нажмите на свой дом на карте'
+  }
+  if (step === 5) {
+    if (draftPts.length === 1) return 'Теперь нажмите на другой угол этой же стены'
+    if (blPts.length === 2) return 'Стена отмечена ✓ Промахнулись — просто отметьте два угла заново'
+    return 'Нажмите на один угол стены, на которую выходят окна квартиры'
+  }
+  if (step === 6) return 'Поворачивайте план, пока стена с окнами не ляжет на красную линию'
+  return ''
+}
+
+function endNudge() {
+  clearTimeout(nudgeTimer)
+  nudgeTimer = 0
+}
+
+function updateGuide() {
+  if (nudgeTimer) return
+  const text = guideFor()
+  $('guideText').textContent = text
+  guide.hidden = !text
+  guide.classList.remove('warn')
+}
+
+/** On step 1 the stage may be hidden (phones), so the reason goes under the upload box. */
+function flashUploadHint(text: string) {
+  const hint = $('uploadHint')
+  hint.textContent = text
+  hint.classList.remove('ok', 'warn')
+  void hint.offsetWidth
+  hint.classList.add('warn')
+}
+
+/** Say briefly, on the map itself, why «Далее» didn't go on. */
+function nudge(text: string) {
+  clearTimeout(nudgeTimer)
+  $('guideText').textContent = text
+  guide.hidden = false
+  guide.classList.remove('warn')
+  void guide.offsetWidth // restart the shake
+  guide.classList.add('warn')
+  nudgeTimer = window.setTimeout(() => {
+    nudgeTimer = 0
+    updateGuide()
+  }, 3500)
+}
 
 // ───────────────────────────── 1 · upload (images and PDF) ─────────────────────────────
 
@@ -161,6 +247,8 @@ async function loadFile(file?: File | null) {
   resetPts()
   rotTouched = false
   autoRotDone = false
+  planCenter = null
+  planScale = 1
   kvSet('plan', src)
   goto(2)
 }
@@ -178,6 +266,8 @@ async function showPlan(src: string) {
   const hint = $('uploadHint')
   hint.textContent = 'План загружен.'
   hint.classList.add('ok')
+  planLayer?.remove()
+  planLayer = null
 }
 
 uz.addEventListener('dragover', (e) => {
@@ -204,8 +294,9 @@ $('restartBtn').addEventListener('click', async () => {
 function fitCanvas() {
   if (!img) return
   const panel = $('cpanel')
-  const w = Math.max(panel.clientWidth - 40, 120)
-  const h = Math.max(panel.clientHeight - 40, 120)
+  const pad = phone() ? 24 : 40
+  const w = Math.max(panel.clientWidth - pad, 120)
+  const h = Math.max(panel.clientHeight - pad, 120)
   const s = Math.min(w / cv.width, h / cv.height, 1)
   cv.style.width = `${Math.round(cv.width * s)}px`
   cv.style.height = `${Math.round(cv.height * s)}px`
@@ -221,6 +312,7 @@ function showRegion() {
   $('btnRegionAbroad').classList.toggle('pri', region === 'abroad')
 }
 function setRegion(r: Region) {
+  if (r !== region && !pin) mapView = null // open the map where this region is
   region = r
   showRegion()
   goto(3)
@@ -245,6 +337,7 @@ function updContUI() {
   $<HTMLButtonElement>('undoBtn').disabled = pts.length === 0
   $<HTMLButtonElement>('resetBtn').disabled = pts.length === 0
   $<HTMLButtonElement>('closeBtn').disabled = pts.length < 3
+  if (step === 3) updateGuide()
 }
 
 function drawContour() {
@@ -543,110 +636,167 @@ document.addEventListener('keydown', (e) => {
   const t = e.target instanceof Element ? e.target : null
   if (step !== 3 || t?.closest('input[type="text"], textarea')) return
   // Enter on a focused button or link keeps its own meaning
-  if (e.key === 'Enter' && !t?.closest('button, a, input')) doClose()
+  if (e.key === 'Enter' && !t?.closest('button, a, input, summary')) doClose()
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
     e.preventDefault()
     if (pts.length) undo()
   }
 })
 
-// ───────────────────────────── 4 · map + reference line ─────────────────────────────
+// ───────────────────────────── 4 · your house · 5 · the wall with the windows ─────────────────────────────
 
 let searchMap: L.Map | null = null
 let lineLayer: L.LayerGroup | null = null
-let searchMarker: L.Marker | null = null
-
-/** The finished line, or the one being drawn (the old line stays until the first new point). */
-function drawLine() {
-  if (!lineLayer) return
-  lineLayer.clearLayers()
-  const shown = draftPts.length ? draftPts : blPts
-  shown.forEach((ll) =>
-    L.circleMarker(ll, { radius: 6, color: '#fff', weight: 2, fillColor: CONTOUR, fillOpacity: 1 }).addTo(lineLayer!),
-  )
-  if (shown.length === 2) L.polyline(shown, { color: CONTOUR, weight: 3, opacity: 1 }).addTo(lineLayer)
-}
+let pinMarker: L.Marker | null = null
 
 function initSearchMap() {
   if (searchMap) return
-  searchMap = createSearchMap($('searchMap'), mapView?.center ?? mapCenter, mapView?.zoom ?? 16, 'scheme')
+  const view = mapView ?? (pin ? { center: pin, zoom: 18 } : startView(region))
+  searchMap = createSearchMap($('searchMap'), view.center, view.zoom, 'scheme')
   lineLayer = L.layerGroup().addTo(searchMap)
-  if (searchPin) searchMarker = goldMarker(searchPin.ll, searchPin.caption).addTo(searchMap)
-  if (blPts.length === 2) {
-    drawLine()
-    if (!mapView) searchMap.fitBounds(L.latLngBounds(blPts), { maxZoom: 19, padding: [80, 80] })
-  }
+  if (pin) showPin(addrCaption())
+  drawLine()
   searchMap.on('moveend', () => {
     const c = searchMap!.getCenter()
     mapView = { center: [c.lat, c.lng], zoom: searchMap!.getZoom() }
     scheduleSave()
   })
   searchMap.on('click', (e: L.LeafletMouseEvent) => {
-    if (!drawingLine || !searchMap) return
-    draftPts.push([e.latlng.lat, e.latlng.lng])
-    if (draftPts.length === 2) {
-      blPts = draftPts
-      draftPts = []
-    }
-    drawLine()
-    if (!draftPts.length) {
-      baselineAz = bearing(blPts[0], blPts[1])
-      autoRotDone = false
-      showBaseline()
-      const c = searchMap.getCenter()
-      mapCenter = [c.lat, c.lng]
-      const first = blPts[0]
-      reverseAddress(first).then((line) => {
-        if (line && blPts[0] === first) {
-          $('addrVal').textContent = line
-          scheduleSave()
-        }
-      })
-      setDrawing(false)
-      scheduleSave()
-    }
+    const ll: LatLng = [e.latlng.lat, e.latlng.lng]
+    if (step === 4) setPin(ll)
+    else if (step === 5) addWallPoint(ll)
   })
+}
+
+function enterMap() {
+  initSearchMap()
+  const map = searchMap!
+  if (step === 4 && !pin && !mapView) {
+    const v = startView(region)
+    map.setView(v.center, v.zoom, { animate: false })
+  }
+  if (pinMarker) {
+    // the pin can be dragged on «Ваш дом»; on «Стена с окнами» taps mark the wall instead
+    if (step === 4) pinMarker.dragging?.enable()
+    else pinMarker.dragging?.disable()
+    pinMarker.getElement()?.classList.toggle('locked', step !== 4)
+  }
+  $('searchMap').classList.toggle('drawing', step === 5)
+  setTimeout(() => {
+    map.invalidateSize()
+    if (step === 5 && pin) {
+      // look at the house, close enough to see its walls
+      const ll = L.latLng(pin)
+      if (map.getZoom() < 18 || !map.getBounds().pad(-0.15).contains(ll)) map.setView(ll, 19)
+    }
+  }, 60)
+}
+
+const addrCaption = () => {
+  const a = $('addrVal').textContent ?? ''
+  return a && a !== '—' ? a.split(',').slice(0, 2).join(',') : undefined
+}
+
+function showPin(caption?: string) {
+  if (!searchMap || !pin) return
+  if (!pinMarker) {
+    pinMarker = goldMarker(pin, caption, true).addTo(searchMap)
+    pinMarker.on('dragend', () => {
+      const ll = pinMarker!.getLatLng()
+      setPin([ll.lat, ll.lng], undefined, true)
+    })
+    if (step !== 4) pinMarker.dragging?.disable()
+  } else {
+    pinMarker.setLatLng(pin)
+    pinMarker.setIcon(pinIcon(caption))
+  }
+  pinMarker.getElement()?.classList.toggle('locked', step !== 4)
+}
+
+/** Put the house pin here; without an address, look the address up. */
+function setPin(ll: LatLng, address?: string, dragged = false) {
+  // a house far from the marked wall makes that wall meaningless
+  if (blPts.length === 2 && searchMap && searchMap.distance(ll, midpoint(blPts)) > 150) clearWall()
+  pin = ll
+  planCenter = null
+  if (address) {
+    $('addrVal').textContent = address.split(',').slice(0, 3).join(',')
+    showPin(address.split(',').slice(0, 2).join(','))
+  } else {
+    $('addrVal').textContent = '—'
+    if (dragged) pinMarker?.setIcon(pinIcon())
+    else showPin()
+    const asked = ll
+    reverseAddress(ll).then((line) => {
+      if (!line || pin !== asked) return
+      $('addrVal').textContent = line.split(',').slice(0, 3).join(',')
+      showPin(line.split(',').slice(0, 2).join(','))
+      scheduleSave()
+    })
+  }
+  endNudge()
+  updateGuide()
+  scheduleSave()
+}
+
+const midpoint = (p: LatLng[]): LatLng => [(p[0][0] + p[1][0]) / 2, (p[0][1] + p[1][1]) / 2]
+
+/** The marked wall, or the one being marked (the old wall stays until the first new point). */
+function drawLine() {
+  if (!lineLayer) return
+  lineLayer.clearLayers()
+  const shown = draftPts.length ? draftPts : blPts
+  if (shown.length === 2) L.polyline(shown, { color: CONTOUR, weight: 4, opacity: 1 }).addTo(lineLayer)
+  shown.forEach((ll) =>
+    L.circleMarker(ll, { radius: 7, color: '#fff', weight: 2, fillColor: CONTOUR, fillOpacity: 1 }).addTo(lineLayer!),
+  )
+}
+
+function addWallPoint(ll: LatLng) {
+  draftPts.push(ll)
+  if (draftPts.length === 2) {
+    blPts = draftPts
+    draftPts = []
+    baselineAz = bearing(blPts[0], blPts[1])
+    autoRotDone = false
+    planCenter = null
+    planScale = 1
+    showBaseline()
+    scheduleSave()
+  }
+  drawLine()
+  endNudge()
+  updateGuide()
+}
+
+function clearWall() {
+  blPts = []
+  draftPts = []
+  baselineAz = null
+  autoRotDone = false
+  planCenter = null
+  drawLine()
+  showBaseline()
 }
 
 function showBaseline() {
   const hint = $('blHint')
   if (baselineAz === null) {
     $('azVal').textContent = '—'
-    hint.textContent = 'Опорная линия показывает, как стоит стена вашего дома.'
+    hint.textContent = 'Эта линия показывает, как стоит стена вашего дома по сторонам света.'
     hint.classList.remove('ok')
   } else {
     const az = `${Math.round(baselineAz)}°`
     $('azVal').textContent = az
-    hint.textContent = `Азимут опорной линии: ${az}. Переходите к шагу 5.`
+    hint.textContent = `Стена с окнами отмечена, её азимут ${az}. Переходите дальше.`
     hint.classList.add('ok')
   }
-  $<HTMLButtonElement>('blClear').disabled = baselineAz === null
+  $<HTMLButtonElement>('blClear').disabled = baselineAz === null && !draftPts.length
 }
-
-function setDrawing(on: boolean) {
-  drawingLine = on
-  const b = $('blBtn')
-  b.textContent = on ? 'Отметьте 2 точки…' : 'Задать линию'
-  b.classList.toggle('on', on)
-  $('searchMap').classList.toggle('drawing', on)
-}
-
-$('blBtn').addEventListener('click', () => {
-  initSearchMap()
-  draftPts = []
-  drawLine()
-  setDrawing(!drawingLine)
-})
 
 $('blClear').addEventListener('click', () => {
-  blPts = []
-  draftPts = []
-  lineLayer?.clearLayers()
-  baselineAz = null
-  autoRotDone = false
-  setDrawing(false)
-  showBaseline()
-  $('addrVal').textContent = '—'
+  clearWall()
+  updateGuide()
   scheduleSave()
 })
 
@@ -661,11 +811,13 @@ async function doSearch(q: string, submitted: boolean) {
   initSearchMap()
   const seq = ++searchSeq
   const c = searchMap!.getCenter()
+  // a whole country on screen says nothing about the street; a city does
+  const near: LatLng | null = searchMap!.getZoom() >= 10 ? [c.lat, c.lng] : null
   try {
-    const places = await searchPlaces(q, region, [c.lat, c.lng], submitted)
+    const places = await searchPlaces(q, region, near, submitted)
     if (seq !== searchSeq) return
     if (!places.length) {
-      sd.innerHTML = '<div class="si si-empty">Ничего не найдено</div>'
+      sd.innerHTML = '<div class="si si-empty">Ничего не найдено — нажмите на свой дом на карте</div>'
     } else {
       sd.innerHTML = places
         .map((p, i) => `<button type="button" class="si" data-i="${i}">${escapeHtml(p.address)}</button>`)
@@ -684,6 +836,7 @@ async function doSearch(q: string, submitted: boolean) {
 async function pickPlace(place: Place) {
   sd.hidden = true
   si.value = place.address
+  si.blur()
   const seq = ++searchSeq
   const p = await resolvePlace(place).catch(() => null)
   if (seq !== searchSeq || !searchMap) return
@@ -694,12 +847,7 @@ async function pickPlace(place: Place) {
   }
   const ll: LatLng = [p.lat, p.lng]
   searchMap.setView(ll, 19)
-  searchMarker?.remove()
-  searchPin = { ll, caption: p.address.split(',').slice(0, 2).join(',') }
-  searchMarker = goldMarker(ll, searchPin.caption).addTo(searchMap)
-  $('addrVal').textContent = p.address.split(',').slice(0, 3).join(',')
-  mapCenter = ll
-  scheduleSave()
+  setPin(ll, p.address)
 }
 
 si.addEventListener('input', () => {
@@ -724,153 +872,96 @@ document.addEventListener('click', (e) => {
   if (!(e.target instanceof Element && e.target.closest('.swrap'))) sd.hidden = true
 })
 
-// ───────────────────────────── 5 · rotate the plan over the map ─────────────────────────────
+// ───────────────────────────── 6 · rotate the plan over the map ─────────────────────────────
 
-const rotCanvas = $<HTMLCanvasElement>('rotCanvas')
-const rotCtx = rotCanvas.getContext('2d')!
-const baseCanvas = $<HTMLCanvasElement>('baselineCanvas')
-let backdrop: L.Map | null = null
-let backdropRegion: Region | null = null
-let backdropMarker: L.Marker | null = null
-let stageW = 0
-let stageH = 0
+let rotMap: L.Map | null = null
+let rotMapRegion: Region | null = null
+let planLayer: PlanLayer | null = null
+let wallLayer: L.LayerGroup | null = null
 
-function sizeStage() {
-  const wrap = $('rpwrap')
-  const dpr = window.devicePixelRatio || 1
-  const oldW = stageW
-  const oldH = stageH
-  stageW = wrap.clientWidth
-  stageH = wrap.clientHeight
-  for (const c of [rotCanvas, baseCanvas]) {
-    c.width = Math.round(stageW * dpr)
-    c.height = Math.round(stageH * dpr)
-    c.style.width = `${stageW}px`
-    c.style.height = `${stageH}px`
-    c.getContext('2d')!.setTransform(dpr, 0, 0, dpr, 0, 0)
+/** Metres per image pixel that make the plan's longest wall as long as the wall marked on the map. */
+function matchedMpp(): number {
+  if (!img || !rotMap || blPts.length !== 2) return 0.05
+  let longest = 0
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i]
+    const b = pts[(i + 1) % pts.length]
+    longest = Math.max(longest, Math.hypot(b.x - a.x, b.y - a.y))
   }
-  if (oldW && oldH) planPos = { x: (planPos.x * stageW) / oldW, y: (planPos.y * stageH) / oldH }
+  const wall = rotMap.distance(blPts[0], blPts[1])
+  const side = Math.max(img.width, img.height)
+  // keep the plan between 6 m and 400 m across, whatever was clicked
+  return clamp(longest > 0 ? wall / longest : 0.05, 6 / side, 400 / side)
 }
 
-function initRotatePanel() {
-  if (!img) return
-  sizeStage()
-  planPos = { x: stageW / 2, y: stageH / 2 }
-  if (!rotTouched) rot = 0
-
-  // Russia → satellite, abroad → hybrid (as on the original)
-  const kind = region === 'ru' ? 'satellite' : 'hybrid'
-  if (backdrop && backdropRegion !== region) {
-    backdrop.remove()
-    backdrop = null
+function enterRotate() {
+  if (!img || blPts.length !== 2) return
+  const kind = region === 'ru' ? 'satellite' : 'hybrid' // as on the original
+  if (rotMap && rotMapRegion !== region) {
+    rotMap.remove()
+    rotMap = null
+    planLayer = null
   }
-  if (!backdrop) {
-    backdrop = createBackdropMap($('rpMap'), mapCenter, 17, kind)
-    backdropRegion = region
+  if (!rotMap) {
+    rotMap = createRotateMap($('rpMap'), kind)
+    rotMapRegion = region
+    wallLayer = L.layerGroup().addTo(rotMap)
+  }
+  const map = rotMap
+  map.invalidateSize()
+
+  // the red line lies on the real wall and runs on past both corners
+  const [a, b] = blPts
+  const d: LatLng = [b[0] - a[0], b[1] - a[1]]
+  const far: [LatLng, LatLng] = [
+    [a[0] - d[0] * 4, a[1] - d[1] * 4],
+    [b[0] + d[0] * 4, b[1] + d[1] * 4],
+  ]
+  wallLayer!.clearLayers()
+  L.polyline(far, { pane: 'linePane', color: RED, weight: 2.5, opacity: 0.9, dashArray: '10 7', interactive: false }).addTo(wallLayer!)
+  L.polyline(blPts, { pane: 'linePane', color: RED, weight: 4, opacity: 1, interactive: false })
+    .bindTooltip('стена с окнами', { permanent: true, direction: 'top', className: 'wall-tip', offset: [0, -6] })
+    .addTo(wallLayer!)
+
+  const fresh = !planCenter
+  if (!planCenter) planCenter = pin ?? midpoint(blPts)
+  const mpp = matchedMpp() * planScale
+  // show the whole plan and the whole marked wall
+  const across = Math.hypot(img.width, img.height) * mpp
+  const view = L.latLngBounds([a, b]).extend(L.latLng(planCenter).toBounds(across))
+  map.fitBounds(view, { padding: [24, 24], maxZoom: 20, animate: false })
+  if (!planLayer) {
+    planLayer = new PlanLayer({ img, pts, stroke: CONTOUR }, L.latLng(planCenter), mpp)
+    planLayer.onMoved = () => {
+      const c = planLayer!.center
+      planCenter = [c.lat, c.lng]
+      scheduleSave()
+    }
+    planLayer.addTo(map)
   } else {
-    backdrop.invalidateSize()
-    backdrop.setView(mapCenter, 17, { animate: false })
+    planLayer.center = L.latLng(planCenter)
+    planLayer.mpp = mpp
   }
-  backdropMarker?.remove()
-  backdropMarker = goldMarker(mapCenter).addTo(backdrop)
-  setTimeout(() => backdrop?.invalidateSize(), 50)
+  planLayer.alpha = planTrans
+  if (fresh) planLayer.center = L.latLng(planCenter)
 
+  if (!rotTouched) rot = 0
   $<HTMLInputElement>('rotSlider').value = String(rot)
   if (baselineAz !== null && !autoRotDone) {
     autoRotDone = true
     autoAlign(true)
   } else {
     showRotation()
-    drawPlan()
+    planLayer.rot = rot
+    planLayer.redraw()
   }
-  drawBaseline()
+  showSize()
+  showTrans()
+  setTimeout(() => {
+    map.invalidateSize()
+    planLayer?.redraw()
+  }, 60)
 }
-
-function drawPlan() {
-  if (!img || !stageW) return
-  rotCtx.clearRect(0, 0, stageW, stageH)
-  rotCtx.save()
-  const rad = (rot * Math.PI) / 180
-  const ac = Math.abs(Math.cos(rad))
-  const as = Math.abs(Math.sin(rad))
-  const s = Math.min((0.9 * stageW) / (img.width * ac + img.height * as), (0.9 * stageH) / (img.width * as + img.height * ac))
-  const w = img.width * s
-  const h = img.height * s
-  rotCtx.globalAlpha = planTrans
-  rotCtx.translate(planPos.x, planPos.y)
-  rotCtx.rotate(rad)
-  rotCtx.drawImage(img, -w / 2, -h / 2, w, h)
-  if (closed && pts.length) {
-    const sx = w / cv.width
-    const sy = h / cv.height
-    rotCtx.globalAlpha = Math.min(1.5 * planTrans, 1)
-    rotCtx.strokeStyle = CONTOUR
-    rotCtx.lineWidth = 2
-    rotCtx.lineJoin = 'round'
-    rotCtx.beginPath()
-    pts.forEach((p, i) => {
-      const x = p.x * sx - w / 2
-      const y = p.y * sy - h / 2
-      if (i) rotCtx.lineTo(x, y)
-      else rotCtx.moveTo(x, y)
-    })
-    rotCtx.closePath()
-    rotCtx.stroke()
-  }
-  rotCtx.restore()
-}
-
-function drawBaseline() {
-  const c = baseCanvas.getContext('2d')!
-  c.clearRect(0, 0, stageW, stageH)
-  if (baselineAz === null) return
-  const a = ((baselineAz - 90) * Math.PI) / 180
-  const cx = stageW / 2
-  const cy = stageH / 2
-  const d = 0.8 * Math.max(stageW, stageH)
-  c.save()
-  c.strokeStyle = RED
-  c.lineWidth = 2.5
-  c.setLineDash([10, 6])
-  c.globalAlpha = 0.9
-  c.beginPath()
-  c.moveTo(cx - Math.cos(a) * d, cy - Math.sin(a) * d)
-  c.lineTo(cx + Math.cos(a) * d, cy + Math.sin(a) * d)
-  c.stroke()
-  c.setLineDash([])
-  c.globalAlpha = 1
-  c.font = "500 12px 'Vela Sans', 'Manrope', sans-serif"
-  c.textAlign = 'left'
-  c.textBaseline = 'bottom'
-  c.lineJoin = 'round'
-  c.lineWidth = 3.5
-  c.strokeStyle = 'rgba(255,255,255,0.9)'
-  c.strokeText('стена с окнами', cx + 12, cy - 6)
-  c.fillStyle = RED
-  c.fillText('стена с окнами', cx + 12, cy - 6)
-  c.restore()
-}
-
-// drag the plan to lay it over the building
-let drag: { dx: number; dy: number; id: number } | null = null
-rotCanvas.addEventListener('pointerdown', (e) => {
-  const r = rotCanvas.getBoundingClientRect()
-  drag = { dx: e.clientX - r.left - planPos.x, dy: e.clientY - r.top - planPos.y, id: e.pointerId }
-  capture(rotCanvas, e.pointerId)
-  rotCanvas.classList.add('grabbing')
-})
-rotCanvas.addEventListener('pointermove', (e) => {
-  if (!drag || e.pointerId !== drag.id) return
-  const r = rotCanvas.getBoundingClientRect()
-  planPos = { x: e.clientX - r.left - drag.dx, y: e.clientY - r.top - drag.dy }
-  drawPlan()
-})
-const endDrag = () => {
-  drag = null
-  rotCanvas.classList.remove('grabbing')
-}
-rotCanvas.addEventListener('pointerup', endDrag)
-rotCanvas.addEventListener('pointercancel', endDrag)
 
 /** The building's tilt from the cardinal directions, folded into −45…+45°. */
 function deviation() {
@@ -895,16 +986,19 @@ function setRot(v: number) {
   rotTouched = true
   $<HTMLInputElement>('rotSlider').value = String(rot)
   showRotation()
-  drawPlan()
+  if (planLayer) {
+    planLayer.rot = rot
+    planLayer.redraw()
+  }
   scheduleSave()
 }
 
-/** Lays the plan's longest wall along the reference line, turning it as little as possible. */
+/** Lays the plan's longest wall along the marked wall, turning it as little as possible. */
 function autoAlign(auto: boolean) {
   const hint = $('rotHint')
   if (baselineAz === null) {
     if (!auto) {
-      hint.textContent = 'Сначала задайте опорную линию на шаге 4.'
+      hint.textContent = 'Сначала отметьте стену с окнами на шаге 5.'
       hint.classList.remove('ok')
     }
     return
@@ -921,15 +1015,54 @@ function autoAlign(auto: boolean) {
     }
   }
   setRot(best)
-  hint.textContent = `Отклонение рассчитано по опорной линии: ${deviationSigned()}. Если план лёг не той стеной, доверните его слайдером или кнопками ±90°.`
+  hint.textContent = `Отклонение рассчитано по стене с окнами: ${deviationSigned()}. Если план лёг не той стеной, доверните его кнопками ±90°.`
   hint.classList.add('ok')
 }
 
 $('rotSlider').addEventListener('input', (e) => setRot(parseFloat((e.target as HTMLInputElement).value)))
-document.querySelectorAll<HTMLButtonElement>('[data-turn]').forEach((b) =>
-  b.addEventListener('click', () => setRot(rot + parseFloat(b.dataset.turn!))),
-)
+
+// turn buttons; holding ±1° / ±0,1° keeps turning (and taps never zoom the page — see style.css)
+document.querySelectorAll<HTMLButtonElement>('[data-turn]').forEach((b) => {
+  const delta = parseFloat(b.dataset.turn!)
+  const turn = () => setRot(rot + delta)
+  if (!b.hasAttribute('data-repeat')) {
+    b.addEventListener('click', turn)
+    return
+  }
+  let hold = 0
+  let rep = 0
+  const stop = () => {
+    clearTimeout(hold)
+    clearInterval(rep)
+  }
+  b.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return
+    e.preventDefault()
+    stop()
+    turn()
+    hold = window.setTimeout(() => (rep = window.setInterval(turn, 70)), 420)
+  })
+  ;['pointerup', 'pointerleave', 'pointercancel'].forEach((t) => b.addEventListener(t, stop))
+  b.addEventListener('click', (e) => e.detail === 0 && turn()) // keyboard
+  b.addEventListener('contextmenu', (e) => e.preventDefault())
+})
+
 $('autoRotBtn').addEventListener('click', () => autoAlign(false))
+
+function showSize() {
+  $<HTMLInputElement>('sizeSlider').value = String(Math.round(Math.log2(planScale) * 100))
+  $('sizeDisp').textContent = `${Math.round(planScale * 100)}%`
+}
+$('sizeSlider').addEventListener('input', (e) => {
+  planScale = 2 ** (parseInt((e.target as HTMLInputElement).value, 10) / 100)
+  showSize()
+  if (planLayer) {
+    planLayer.mpp = matchedMpp() * planScale
+    planLayer.redraw()
+  }
+  scheduleSave()
+})
+
 function showTrans() {
   const pct = Math.round(planTrans * 100)
   $<HTMLInputElement>('transSlider').value = String(pct)
@@ -938,15 +1071,19 @@ function showTrans() {
 $('transSlider').addEventListener('input', (e) => {
   planTrans = parseInt((e.target as HTMLInputElement).value, 10) / 100
   showTrans()
-  drawPlan()
+  if (planLayer) {
+    planLayer.alpha = planTrans
+    planLayer.redraw()
+  }
   scheduleSave()
 })
 $('applyRotBtn').addEventListener('click', () => {
   showRotation()
-  goto(6)
+  goto(LAST)
 })
+if (!phone()) $<HTMLDetailsElement>('rotMore').open = true
 
-// ───────────────────────────── 6 · result ─────────────────────────────
+// ───────────────────────────── 7 · result ─────────────────────────────
 
 const on = (id: string) => $<HTMLInputElement>(id).checked
 
@@ -1082,23 +1219,24 @@ function saveFallback(out: HTMLCanvasElement, mobile: boolean) {
 // accidental swipe back doesn't lose the work. «Начать заново» on step 1 clears it.
 
 interface Saved {
-  v: 1
+  v: 2
   step: number
   region: Region
   pts: Pt[]
   closed: boolean
   center: Pt
-  mapCenter: LatLng
-  mapView: { center: LatLng; zoom: number } | null
-  searchPin: { ll: LatLng; caption: string } | null
-  search: string
+  pin: LatLng | null
   addr: string
+  mapView: { center: LatLng; zoom: number } | null
+  search: string
   baselineAz: number | null
   blPts: LatLng[]
   rot: number
   rotTouched: boolean
   autoRotDone: boolean
   planTrans: number
+  planCenter: LatLng | null
+  planScale: number
   opacity: number
   layers: Record<string, boolean>
 }
@@ -1108,23 +1246,24 @@ let restoring = false
 
 function snapshot(): Saved {
   return {
-    v: 1,
+    v: 2,
     step,
     region,
     pts,
     closed,
     center,
-    mapCenter,
-    mapView,
-    searchPin,
-    search: si.value,
+    pin,
     addr: $('addrVal').textContent ?? '—',
+    mapView,
+    search: si.value,
     baselineAz,
     blPts,
     rot,
     rotTouched,
     autoRotDone,
     planTrans,
+    planCenter,
+    planScale,
     opacity,
     layers: Object.fromEntries(LAYER_IDS.map((id) => [id, on(id)])),
   }
@@ -1142,7 +1281,7 @@ window.addEventListener('pagehide', saveNow)
 
 async function restore() {
   const [plan, s] = await Promise.all([kvGet<string>('plan'), kvGet<Saved>('state')])
-  if (!plan || !s || s.v !== 1) return
+  if (!plan || !s || s.v !== 2) return
   restoring = true
   try {
     await showPlan(plan)
@@ -1152,13 +1291,13 @@ async function restore() {
     closed = s.closed && s.pts.length >= 3
     center = s.center
     updContUI()
-    mapCenter = s.mapCenter
-    mapView = s.mapView
-    searchPin = s.searchPin
-    si.value = s.search
+    pin = s.pin
     $('addrVal').textContent = s.addr
+    mapView = s.mapView
+    si.value = s.search
     baselineAz = s.baselineAz
-    blPts = s.blPts
+    blPts = s.blPts.length === 2 ? s.blPts : []
+    if (!blPts.length) baselineAz = null
     showBaseline()
     rot = s.rot
     rotTouched = s.rotTouched
@@ -1166,7 +1305,10 @@ async function restore() {
     $<HTMLInputElement>('rotSlider').value = String(rot)
     showRotation()
     planTrans = s.planTrans
+    planCenter = s.planCenter
+    planScale = s.planScale || 1
     showTrans()
+    showSize()
     opacity = s.opacity
     showOpacity()
     LAYER_IDS.forEach((id) => {
@@ -1176,7 +1318,10 @@ async function restore() {
   } finally {
     restoring = false
   }
-  goto(s.step)
+  // back to where they were — or to the first step that still needs something
+  let t = s.step
+  while (t > 1 && blocker(t)) t--
+  goto(t, true)
 }
 
 // ───────────────────────────── modals ─────────────────────────────
@@ -1204,17 +1349,12 @@ let resizeTimer = 0
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer)
   resizeTimer = window.setTimeout(() => {
-    if (step === 4) searchMap?.invalidateSize()
-    if (step === 5 && img) {
-      sizeStage()
-      backdrop?.invalidateSize()
-      drawPlan()
-      drawBaseline()
-    }
-    if ((step <= 3 || step === 6) && img) {
+    searchMap?.invalidateSize()
+    rotMap?.invalidateSize()
+    if ((step <= 3 || step === LAST) && img) {
       resetView()
       fitCanvas()
-      if (step === 6) renderResult()
+      if (step === LAST) renderResult()
       else drawContour()
     }
   }, 120)
@@ -1225,8 +1365,7 @@ document.fonts
   ?.load("600 12px 'Vela Sans'")
   .then(() => Promise.all([document.fonts.load("500 13px 'Vela Sans'"), document.fonts.load("italic 500 18px 'Cormorant'")]))
   .then(() => {
-    if (step === 6) renderResult()
-    if (step === 5) drawBaseline()
+    if (step === LAST) renderResult()
   })
   .catch(() => {})
 

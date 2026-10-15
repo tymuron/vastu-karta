@@ -47,14 +47,15 @@
     <div class="step" data-s="1"><span class="snum">01</span><span class="slabel">Загрузить план</span></div>
     <div class="step" data-s="2"><span class="snum">02</span><span class="slabel">Регион</span></div>
     <div class="step" data-s="3"><span class="snum">03</span><span class="slabel">Контур</span></div>
-    <div class="step" data-s="4"><span class="snum">04</span><span class="slabel">Опорная линия</span></div>
-    <div class="step" data-s="5"><span class="snum">05</span><span class="slabel">Повернуть план</span></div>
-    <div class="step" data-s="6"><span class="snum">06</span><span class="slabel">Васту Карта</span></div>
+    <div class="step" data-s="4"><span class="snum">04</span><span class="slabel">Ваш дом</span></div>
+    <div class="step" data-s="5"><span class="snum">05</span><span class="slabel">Стена с окнами</span></div>
+    <div class="step" data-s="6"><span class="snum">06</span><span class="slabel">Повернуть план</span></div>
+    <div class="step" data-s="7"><span class="snum">07</span><span class="slabel">Васту Карта</span></div>
   </div>
   <div class="mobile-step">
     <span class="ms-num" id="mStepNum">01</span>
     <span class="ms-label" id="mStepLabel">Загрузить план</span>
-    <span class="ms-total" id="mStepTotal">шаг 1 из 6</span>
+    <span class="ms-total" id="mStepTotal">шаг 1 из 7</span>
   </div>
 </div>
 
@@ -100,74 +101,81 @@
 
       <!-- 3 · Contour -->
       <section class="pane" id="p3">
-        <h2 class="ptitle">Обведите <em>контур</em></h2>
-        <p class="pdesc">Нажимайте по очереди на углы внешних стен квартиры, обходя её по периметру. В конце замкните контур.</p>
-        <div class="hint">Идите по периметру. Замкнуть контур — клавиша Enter, кнопка ниже или нажатие на первую точку.</div>
-        <div class="hint">Приближайте план колёсиком мыши, двумя пальцами или кнопками «+ / −». Неточно поставленную точку можно перетащить.</div>
+        <h2 class="ptitle m-hide">Обведите <em>контур</em></h2>
+        <p class="pdesc m-hide">Нажимайте по очереди на углы внешних стен квартиры, обходя её по периметру. В конце замкните контур.</p>
+        <div class="hint m-hide">Идите по периметру. Замкнуть контур — клавиша Enter, кнопка ниже или нажатие на первую точку.</div>
+        <div class="hint m-hide">Приближайте план колёсиком мыши, двумя пальцами или кнопками «+ / −». Неточно поставленную точку можно перетащить.</div>
         <div class="brow">
           <button class="btn" id="undoBtn" disabled>Отмена</button>
           <button class="btn" id="resetBtn" disabled>Сброс</button>
         </div>
         <button class="btn pri" id="closeBtn" disabled>Замкнуть контур →</button>
-        <div class="ibox">
+        <div class="ibox m-hide">
           <div class="irow"><span class="k">Точек</span><span class="v" id="ptCount">0</span></div>
           <div class="irow"><span class="k">Замкнут</span><span class="v" id="closedSt">Нет</span></div>
         </div>
       </section>
 
-      <!-- 4 · Map + reference line -->
+      <!-- 4 · Your house -->
       <section class="pane" id="p4">
-        <h2 class="ptitle">Опорная <em>линия</em></h2>
-        <p class="pdesc">Найдите свой дом на карте и проведите опорную линию вдоль той стены дома, на которую выходят окна квартиры.</p>
-        <div class="hint">Введите адрес и нажмите «Найти».</div>
-        <div class="sep"></div>
-        <div>
-          <div class="lbl">Опорная линия</div>
-          <div class="hint hint-gap">Нажмите кнопку, затем отметьте на карте две точки вдоль стены фасада.</div>
-          <div class="brow">
-            <button class="btn" id="blBtn">Задать линию</button>
-            <button class="btn" id="blClear" disabled>Сброс</button>
-          </div>
-        </div>
-        <div class="ibox">
-          <div class="irow"><span class="k">Азимут линии</span><span class="v" id="azVal">—</span></div>
+        <h2 class="ptitle m-hide">Ваш <em>дом</em></h2>
+        <p class="pdesc m-hide">Введите адрес в строке над картой и выберите свой дом из подсказок. Если метка встала не на ваш дом — перетащите её или просто нажмите на нужный дом.</p>
+        <div class="ibox m-hide">
           <div class="irow"><span class="k">Адрес</span><span class="v v-addr" id="addrVal">—</span></div>
         </div>
-        <div class="hint" id="blHint">Опорная линия показывает, как стоит стена вашего дома.</div>
+        <div class="hint m-hide">Адрес можно и не вводить: найдите дом на карте сами и нажмите на него.</div>
       </section>
 
-      <!-- 5 · Rotate the plan over the map -->
+      <!-- 5 · The wall with the windows (reference line) -->
       <section class="pane" id="p5">
-        <h2 class="ptitle">Поверните <em>план</em></h2>
-        <p class="pdesc">Вращайте план слайдером, пока <strong>стена с окнами</strong> не ляжет на красную пунктирную линию на карте.</p>
-        <div class="callout">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="5.5" /><circle cx="12" cy="12" r="1.6" class="fill" /></svg>
-          <p>Стена с окнами вашей квартиры должна совпасть с <span class="red">красной линией</span> на карте.</p>
+        <h2 class="ptitle m-hide">Стена <em>с окнами</em></h2>
+        <p class="pdesc m-hide">Отметьте на карте два угла той стены дома, на которую выходят окна квартиры. На «Спутнике» стены видно лучше всего.</p>
+        <div class="wall-row">
+          <span class="wall-az">Азимут стены <b id="azVal">—</b></span>
+          <button class="btn" id="blClear" disabled>Отметить заново</button>
         </div>
-        <div class="hint ok" id="rotHint">Красная линия — это опорная стена с окнами. План вращается, линия остаётся на месте.</div>
-        <div class="sep"></div>
-        <div class="slider-wrap">
-          <div class="slider-head"><span>Поворот плана</span><span class="sv" id="rotDisp">0,0°</span></div>
-          <input type="range" id="rotSlider" min="0" max="359.9" value="0" step="0.1" />
-          <div class="turn-row" role="group" aria-label="Точный поворот">
+        <div class="hint m-hide" id="blHint">Эта линия показывает, как стоит стена вашего дома по сторонам света.</div>
+      </section>
+
+      <!-- 6 · Rotate the plan over the map -->
+      <section class="pane" id="p6">
+        <h2 class="ptitle m-hide">Поверните <em>план</em></h2>
+        <p class="pdesc m-hide">Поворачивайте план, пока <strong>стена с окнами</strong> не ляжет на красную линию. План можно передвинуть, а карту — приблизить.</p>
+        <div class="hint ok m-hide" id="rotHint">Красная линия — это стена с окнами, которую вы отметили.</div>
+        <div class="rot-ctl">
+          <div class="lbl lbl-quiet m-hide">Поворот плана</div>
+          <div class="rot-row" role="group" aria-label="Поворот плана">
             <button class="btn btn-turn" data-turn="-90">−90°</button>
-            <button class="btn btn-turn" data-turn="-1">−1°</button>
-            <button class="btn btn-turn" data-turn="-0.1">−0,1°</button>
-            <button class="btn btn-turn" data-turn="0.1">+0,1°</button>
-            <button class="btn btn-turn" data-turn="1">+1°</button>
+            <button class="btn btn-turn" data-turn="-1" data-repeat>−1°</button>
+            <span class="rot-val" id="rotDisp" aria-live="polite">0,0°</span>
+            <button class="btn btn-turn" data-turn="1" data-repeat>+1°</button>
             <button class="btn btn-turn" data-turn="90">+90°</button>
           </div>
-          <button class="btn" id="autoRotBtn">Рассчитать точно</button>
+          <input type="range" id="rotSlider" min="0" max="359.9" value="0" step="0.1" aria-label="Поворот плана" />
         </div>
-        <div class="slider-wrap">
-          <div class="slider-head"><span>Прозрачность плана</span><span class="sv" id="transDisp">82%</span></div>
-          <input type="range" id="transSlider" min="20" max="100" value="82" step="2" />
-        </div>
-        <button class="btn pri" id="applyRotBtn">Применить ориентацию →</button>
+        <details class="more" id="rotMore">
+          <summary>Точная настройка</summary>
+          <div class="more-body">
+            <div class="turn-fine">
+              <button class="btn btn-turn" data-turn="-0.1" data-repeat>−0,1°</button>
+              <button class="btn btn-turn" data-turn="0.1" data-repeat>+0,1°</button>
+              <button class="btn" id="autoRotBtn">Рассчитать точно</button>
+            </div>
+            <div class="slider-wrap">
+              <div class="slider-head"><span>Размер плана</span><span class="sv" id="sizeDisp">100%</span></div>
+              <input type="range" id="sizeSlider" min="-200" max="200" value="0" step="5" aria-label="Размер плана" />
+            </div>
+            <div class="slider-wrap">
+              <div class="slider-head"><span>Прозрачность плана</span><span class="sv" id="transDisp">82%</span></div>
+              <input type="range" id="transSlider" min="20" max="100" value="82" step="2" aria-label="Прозрачность плана" />
+            </div>
+          </div>
+        </details>
+        <button class="btn pri m-hide" id="applyRotBtn">Применить ориентацию →</button>
       </section>
 
-      <!-- 6 · Result -->
-      <section class="pane" id="p6">
+      <!-- 7 · Result -->
+      <section class="pane" id="p7">
         <h2 class="ptitle">Васту <em>Карта</em></h2>
         <p class="pdesc">Сектора наложены на план квартиры. Брахмастан отмечен белым.</p>
         <div class="sep"></div>
@@ -213,7 +221,7 @@
   </aside>
 
   <main class="area">
-    <!-- canvas: steps 1, 2, 3, 6 -->
+    <!-- canvas: steps 1, 2, 3, 7 -->
     <div class="cpanel" id="cpanel">
       <div class="empty" id="emptyMsg">
         <span class="ghost" aria-hidden="true">VASTU</span>
@@ -228,9 +236,9 @@
       </div>
     </div>
 
-    <!-- map: step 4 -->
+    <!-- map: steps 4 and 5 -->
     <div class="mpanel" id="mpanel" hidden>
-      <div class="mbar">
+      <div class="mbar" id="mbar">
         <div class="swrap">
           <input type="text" id="msearch" placeholder="Введите адрес…" autocomplete="off" />
           <div class="sdrop" id="sdrop" hidden></div>
@@ -240,14 +248,13 @@
       <div id="searchMap" class="lmap"></div>
     </div>
 
-    <!-- plan over the map: step 5 -->
+    <!-- plan over the map: step 6 -->
     <div class="rppanel" id="rppanel" hidden>
-      <div class="rpwrap" id="rpwrap">
-        <div id="rpMap" class="lmap"></div>
-        <canvas id="rotCanvas"></canvas>
-        <canvas id="baselineCanvas"></canvas>
-      </div>
+      <div id="rpMap" class="lmap"></div>
     </div>
+
+    <!-- what to do now, written on the map / plan itself -->
+    <div class="guide" id="guide" hidden><span id="guideText"></span></div>
   </main>
 </div>
 
