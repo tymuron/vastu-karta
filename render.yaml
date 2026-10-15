@@ -1,21 +1,17 @@
-# Reference config for a Render Static Site.
-# (When creating the site from the Render dashboard you'll type these in by hand;
-#  this file just documents the settings.)
+# Render static site — live at https://annaromeo-vastu-karta.onrender.com
 #
-#   Repository:        tymuron/antigravity-workspace
-#   Root Directory:    scratch/vastu-map-builder
-#   Build Command:     npm ci && npm run build
-#   Publish Directory: dist
+# Source of truth: scratch/vastu-map-builder in the (private) antigravity-workspace repo.
+# Only this folder is published, to the public repo github.com/tymuron/vastu-karta, which
+# Render auto-deploys from (main). To ship a change, commit in the workspace, then:
 #
-# The map is keyless — no environment variables are required.
+#   git subtree push --prefix=scratch/vastu-map-builder vastu-karta main
+#
+# The map and address search are keyless — no environment variables are needed.
+# No SPA rewrite on purpose: the page has no client-side routes, and a catch-all would
+# answer missing assets with index.html (200) and hide broken deploys.
 services:
   - type: web
-    name: vastu-map-builder
+    name: annaromeo-vastu-karta
     runtime: static
-    rootDir: scratch/vastu-map-builder
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
