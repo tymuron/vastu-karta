@@ -83,6 +83,13 @@ nativastu's Yandex.Metrika cookie banner, its server ping when a map is built, a
 copy-protection script are its own analytics/IP plumbing, not the builder. The privacy
 policy here is our own and states the facts of this build (no cookies, no analytics).
 
+## English copy
+
+An English version lives in `../vastu-map-builder-en` (16 Oct 2026, Anna's request), live at
+https://annaromeo-vastu-map.onrender.com from the `en` branch of the same public repo. It is a
+**separate copy** (Tymur's call), without the region step — six steps, worldwide search. Any
+fix made here has to be ported there by hand; its README maps the step numbers.
+
 ## Deploy
 
 Live at **https://annaromeo-vastu-karta.onrender.com** — Render static site
