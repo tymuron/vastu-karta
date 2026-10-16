@@ -1,0 +1,19 @@
+# Render static site — the English Vastu map builder, live at https://annaromeo-vastu-map.onrender.com
+#
+# Source of truth: scratch/vastu-map-builder-en in the (private) antigravity-workspace repo.
+# It is published to the `en` branch of the public repo github.com/tymuron/vastu-karta (whose
+# `main` is the Russian builder), and Render auto-deploys from that branch. To ship a change,
+# commit in the workspace, then:
+#
+#   git subtree push --prefix=scratch/vastu-map-builder-en vastu-karta en
+#
+# The map and address search are keyless — no environment variables are needed.
+# No SPA rewrite on purpose: the page has no client-side routes, and a catch-all would
+# answer missing assets with index.html (200) and hide broken deploys.
+services:
+  - type: web
+    name: annaromeo-vastu-map
+    runtime: static
+    branch: en
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist

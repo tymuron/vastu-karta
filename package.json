@@ -1,0 +1,20 @@
+{
+  "name": "vastu-map-builder-en",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview --host"
+  },
+  "dependencies": {
+    "leaflet": "^1.9.4",
+    "pdfjs-dist": "5.4.394"
+  },
+  "devDependencies": {
+    "@types/leaflet": "^1.9.21",
+    "typescript": "^5.2.2",
+    "vite": "^5.4.10"
+  }
+}
