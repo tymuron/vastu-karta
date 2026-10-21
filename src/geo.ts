@@ -40,6 +40,17 @@ export function centroid(poly: Pt[]): Pt {
   return { x: cx / (6 * a), y: cy / (6 * a) }
 }
 
+/** Great-circle distance in metres. */
+export function distance(a: [number, number], b: [number, number]): number {
+  const R = 6371008.8
+  const φ1 = (a[0] * Math.PI) / 180
+  const φ2 = (b[0] * Math.PI) / 180
+  const dφ = φ2 - φ1
+  const dλ = ((b[1] - a[1]) * Math.PI) / 180
+  const h = Math.sin(dφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ / 2) ** 2
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)))
+}
+
 /** Initial great-circle bearing from A to B, degrees clockwise from north. */
 export function bearing(a: [number, number], b: [number, number]): number {
   const φ1 = (a[0] * Math.PI) / 180

@@ -1,214 +1,52 @@
-// Keyless maps: no API key, no billing, works in Russia and abroad.
-//   Схема   — OpenStreetMap
-//   Спутник — Esri World Imagery
-//   Гибрид  — Esri World Imagery + Esri place names and roads
-// Address search and reverse lookup: Esri World Geocoding, Nominatim (OSM) as a fallback.
+// Which map serves whom, address search on top of it, and where the map opens.
+// Russia → Yandex (as on nativastu); everywhere else → free maps (OpenStreetMap / Esri, Esri search,
+// Nominatim as its fallback).
 
-import * as L from 'leaflet'
+import type { LatLng, Provider, Region } from './maps/base'
+import { freeResolve, freeReverse, freeSearch } from './maps/free'
+import { loadYandex, yandexReverse, yandexSearch } from './maps/yandex'
 
-export type Region = 'ru' | 'abroad'
-export type LayerKind = 'scheme' | 'satellite' | 'hybrid'
-export type LatLng = [number, number]
+export type { LatLng, Region } from './maps/base'
 
-const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services'
-const tiles = {
-  osm: () =>
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 21,
-      maxNativeZoom: 19,
-      attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
-    }),
-  imagery: () =>
-    L.tileLayer(`${ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`, {
-      maxZoom: 21,
-      maxNativeZoom: 19,
-      attribution: 'Снимки © Esri, Maxar, Earthstar Geographics',
-    }),
-  places: () =>
-    L.tileLayer(`${ESRI}/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}`, {
-      maxZoom: 21,
-      maxNativeZoom: 19,
-    }),
-  roads: () =>
-    L.tileLayer(`${ESRI}/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}`, {
-      maxZoom: 21,
-      maxNativeZoom: 19,
-      opacity: 0.85,
-    }),
-}
+export const providerFor = (region: Region): Provider => (region === 'ru' ? 'yandex' : 'free')
 
-function makeLayer(kind: LayerKind): L.Layer {
-  if (kind === 'scheme') return tiles.osm()
-  if (kind === 'satellite') return tiles.imagery()
-  return L.layerGroup([tiles.imagery(), tiles.roads(), tiles.places()])
-}
-
-/** A map with a «Схема / Спутник / Гибрид» switch, zoom and «где я» buttons. */
-export function createSearchMap(el: HTMLElement, center: LatLng, zoom: number, initial: LayerKind): L.Map {
-  const map = L.map(el, { center, zoom, zoomControl: false, attributionControl: true })
-  map.attributionControl.setPrefix(false)
-  map.attributionControl.addAttribution('Поиск адресов © Esri')
-  L.control.zoom({ position: 'topleft', zoomInTitle: 'Приблизить', zoomOutTitle: 'Отдалить' }).addTo(map)
-
-  let current: L.Layer = makeLayer(initial).addTo(map)
-  const TypeControl = L.Control.extend({
-    onAdd() {
-      const box = L.DomUtil.create('div', 'map-types')
-      const names: [LayerKind, string][] = [
-        ['scheme', 'Схема'],
-        ['satellite', 'Спутник'],
-        ['hybrid', 'Гибрид'],
-      ]
-      names.forEach(([kind, label]) => {
-        const b = L.DomUtil.create('button', kind === initial ? 'on' : '', box)
-        b.type = 'button'
-        b.textContent = label
-        L.DomEvent.on(b, 'click', (e) => {
-          L.DomEvent.stop(e)
-          map.removeLayer(current)
-          current = makeLayer(kind).addTo(map)
-          box.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b))
-        })
-      })
-      L.DomEvent.disableClickPropagation(box)
-      return box
-    },
-  })
-  new TypeControl({ position: 'topright' }).addTo(map)
-
-  let me: L.CircleMarker | null = null
-  const GeoControl = L.Control.extend({
-    onAdd() {
-      const b = L.DomUtil.create('button', 'map-geo') as HTMLButtonElement
-      b.type = 'button'
-      b.title = 'Где я'
-      b.innerHTML =
-        '<svg viewBox="0 0 24 24"><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="2.2" class="fill"/></svg>'
-      L.DomEvent.on(b, 'click', (e) => {
-        L.DomEvent.stop(e)
-        if (!navigator.geolocation) return
-        b.classList.add('busy')
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
-            b.classList.remove('busy')
-            const ll: LatLng = [pos.coords.latitude, pos.coords.longitude]
-            map.setView(ll, 17)
-            if (me) me.remove()
-            me = L.circleMarker(ll, { radius: 7, color: '#fff', weight: 2, fillColor: '#2F80ED', fillOpacity: 1 }).addTo(map)
-          },
-          () => b.classList.remove('busy'),
-          { enableHighAccuracy: true, timeout: 12000 },
-        )
-      })
-      L.DomEvent.disableClickPropagation(b)
-      return b
-    },
-  })
-  new GeoControl({ position: 'topleft' }).addTo(map)
-  return map
-}
-
-/** Gold pin, optionally with a caption — the visitor's building. Draggable to the exact house. */
-export function goldMarker(ll: LatLng, caption?: string, draggable = false): L.Marker {
-  return L.marker(ll, {
-    icon: pinIcon(caption),
-    keyboard: false,
-    interactive: draggable,
-    draggable,
-    autoPan: true,
-  })
-}
-
-export const pinIcon = (caption?: string) =>
-  L.divIcon({
-    className: 'gold-marker',
-    html: `<span class="gm-hit"></span><span class="gm-dot"></span>${caption ? `<span class="gm-cap">${escapeHtml(caption)}</span>` : ''}`,
-    iconSize: [0, 0],
-    iconAnchor: [0, 0],
-  })
-
-// ── address search ──
-// Esri World Geocoding: fast suggestions while typing (~0.3 s), house-level in Russia,
-// and a country filter that matches the «в России / за рубежом» choice.
-// Nominatim (OSM) is only a fallback for an explicit «Найти» — its rules forbid search-as-you-type.
-
-const GEOCODER = 'https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer'
+export const loadProvider = (p: Provider) => (p === 'yandex' ? loadYandex('ru') : Promise.resolve())
 
 export interface Place {
   /** full address line, street first */
   address: string
   lat?: number
   lng?: number
-  /** Esri suggestion key, resolved to coordinates when picked */
+  /** Esri suggestion key, turned into coordinates when picked */
   magicKey?: string
 }
 
-/** Up to 5 suggestions — near the visible map when it shows a city, and the house number typed first. */
-export async function searchPlaces(q: string, region: Region, near: LatLng | null, submitted: boolean): Promise<Place[]> {
+/** Up to 5 places — near the visible map, and with the house number typed ranked first.
+ *  `submitted`: «Найти» or Enter was pressed, not just typing. */
+export async function searchPlaces(p: Provider, q: string, near: [LatLng, LatLng] | null, submitted: boolean): Promise<Place[]> {
+  const centre = near ? ([(near[0][0] + near[1][0]) / 2, (near[0][1] + near[1][1]) / 2] as LatLng) : null
+  const list: Place[] = p === 'yandex' ? await yandexSearch(q, near) : await freeSearch(q, centre, 'ru', submitted)
+  const seen = new Set<string>()
+  const uniq = list.filter((x) => !seen.has(x.address) && seen.add(x.address))
+  const nums = q.match(/\d+[а-яa-z]?/gi) ?? []
+  const hasNums = (a: string) => nums.every((n) => new RegExp(`(^|\\D)${n}(\\D|$)`, 'i').test(a))
+  return [...uniq.filter((x) => hasNums(x.address)), ...uniq.filter((x) => !hasNums(x.address))].slice(0, 5)
+}
+
+/** Coordinates of a picked place (free-map suggestions come without them). */
+export async function resolvePlace(place: Place): Promise<LatLng | null> {
+  if (place.lat != null && place.lng != null) return [place.lat, place.lng]
   try {
-    const params = new URLSearchParams({ f: 'json', text: q, maxSuggestions: '8', langCode: 'ru' })
-    if (near) params.set('location', `${near[1].toFixed(5)},${near[0].toFixed(5)}`)
-    if (region === 'ru') params.set('countryCode', 'RUS')
-    const res = await fetch(`${GEOCODER}/suggest?${params}`)
-    if (!res.ok) throw new Error(`suggest ${res.status}`)
-    const d = (await res.json()) as { suggestions?: { text: string; magicKey: string; isCollection: boolean }[]; error?: unknown }
-    if (d.error) throw new Error('suggest error')
-    const list = (d.suggestions ?? []).filter((s) => !s.isCollection).map((s) => ({ address: s.text, magicKey: s.magicKey }))
-    const nums = q.match(/\d+[а-яa-z]?/gi) ?? []
-    const hasNums = (a: string) => nums.every((n) => new RegExp(`(^|\\D)${n}(\\D|$)`, 'i').test(a))
-    const ranked = [...list.filter((p) => hasNums(p.address)), ...list.filter((p) => !hasNums(p.address))].slice(0, 5)
-    if (ranked.length || !submitted) return ranked
-  } catch (err) {
-    if (!submitted) throw err
+    return await freeResolve(place, 'ru')
+  } catch {
+    return null
   }
-  return nominatimSearch(q, region)
-}
-
-async function nominatimSearch(q: string, region: Region): Promise<Place[]> {
-  const params = new URLSearchParams({ format: 'jsonv2', limit: '5', addressdetails: '1', 'accept-language': 'ru', q })
-  if (region === 'ru') params.set('countrycodes', 'ru')
-  const res = await fetch(`https://nominatim.openstreetmap.org/search?${params}`)
-  if (!res.ok) throw new Error(`nominatim ${res.status}`)
-  const d = (await res.json()) as { lat: string; lon: string; display_name: string; address?: Record<string, string> }[]
-  return d.map((r) => ({ address: (r.address && osmLine(r.address)) || r.display_name, lat: +r.lat, lng: +r.lon }))
-}
-
-/** Coordinates of a picked suggestion. */
-export async function resolvePlace(p: Place): Promise<{ lat: number; lng: number; address: string } | null> {
-  if (p.lat != null && p.lng != null) return { lat: p.lat, lng: p.lng, address: p.address }
-  const params = new URLSearchParams({ f: 'json', SingleLine: p.address, magicKey: p.magicKey ?? '', maxLocations: '1', langCode: 'ru' })
-  const res = await fetch(`${GEOCODER}/findAddressCandidates?${params}`)
-  if (!res.ok) return null
-  const d = (await res.json()) as { candidates?: { address: string; location: { x: number; y: number } }[] }
-  const c = d.candidates?.[0]
-  return c ? { lat: c.location.y, lng: c.location.x, address: p.address } : null
-}
-
-function osmLine(a: Record<string, string>): string {
-  const settlement = a.city || a.town || a.village || a.municipality || a.county
-  return [a.road || a.pedestrian || a.square, a.house_number, settlement, a.country].filter(Boolean).join(', ')
 }
 
 /** Address line of the building at a point (street first). */
-export async function reverseAddress(ll: LatLng): Promise<string | null> {
+export async function reverseAddress(p: Provider, ll: LatLng): Promise<string | null> {
   try {
-    const res = await fetch(
-      `${GEOCODER}/reverseGeocode?f=json&langCode=ru&featureTypes=PointAddress,StreetAddress&location=${ll[1]},${ll[0]}`,
-    )
-    if (res.ok) {
-      const d = (await res.json()) as { address?: { LongLabel?: string } }
-      if (d.address?.LongLabel) return d.address.LongLabel
-    }
-  } catch {
-    /* fall through to OSM */
-  }
-  try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&addressdetails=1&accept-language=ru&lat=${ll[0]}&lon=${ll[1]}`,
-    )
-    if (!res.ok) return null
-    const d = (await res.json()) as { address?: Record<string, string> }
-    return (d.address && osmLine(d.address)) || null
+    return p === 'yandex' ? await yandexReverse(ll) : await freeReverse(ll, 'ru')
   } catch {
     return null
   }
@@ -336,17 +174,4 @@ export function startView(region: Region): { center: LatLng; zoom: number } {
   if (region === 'ru') return RU_ZONES[tz] ? { center: RU_ZONES[tz], zoom: 11 } : { center: RU_ZONES['Europe/Moscow'], zoom: 10 }
   const z = ABROAD_ZONES[tz] ?? (RU_ZONES[tz] ? undefined : CONTINENTS[tz.split('/')[0]])
   return z ? { center: [z[0], z[1]], zoom: z[2] } : { center: [48, 12], zoom: 4 }
-}
-
-/** A satellite map for the rotate step that can be zoomed and panned. */
-export function createRotateMap(el: HTMLElement, kind: LayerKind): L.Map {
-  const map = L.map(el, { zoomControl: false, attributionControl: true, maxZoom: 21, zoomSnap: 0.25, wheelPxPerZoomLevel: 90 })
-  map.attributionControl.setPrefix(false)
-  L.control.zoom({ position: 'topleft', zoomInTitle: 'Приблизить', zoomOutTitle: 'Отдалить' }).addTo(map)
-  map.createPane('planPane').style.zIndex = '450'
-  const line = map.createPane('linePane')
-  line.style.zIndex = '460'
-  line.style.pointerEvents = 'none'
-  makeLayer(kind).addTo(map)
-  return map
 }

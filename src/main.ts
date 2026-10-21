@@ -1,14 +1,10 @@
-import 'leaflet/dist/leaflet.css'
 import './style.css'
-import * as L from 'leaflet'
 import { BRAND, LINKS } from './config'
-import { bearing, centroid, longestEdgeAngle, norm360, type Pt } from './geo'
+import { bearing, centroid, distance, longestEdgeAngle, norm360, type Pt } from './geo'
 import {
-  createRotateMap,
-  createSearchMap,
   escapeHtml,
-  goldMarker,
-  pinIcon,
+  loadProvider,
+  providerFor,
   resolvePlace,
   reverseAddress,
   searchPlaces,
@@ -17,8 +13,10 @@ import {
   type Place,
   type Region,
 } from './mapkit'
+import type { GeoMap, Grabber, MapKind, Provider, View } from './maps/base'
+import { FreeMap, type FreeText } from './maps/free'
+import { YandexMap } from './maps/yandex'
 import { pdfToDataUrl } from './pdf'
-import { PlanLayer } from './planlayer'
 import { CONTOUR, drawResult, type Layers } from './result'
 import { kvClear, kvGet, kvSet } from './store'
 
@@ -266,8 +264,6 @@ async function showPlan(src: string) {
   const hint = $('uploadHint')
   hint.textContent = 'План загружен.'
   hint.classList.add('ok')
-  planLayer?.remove()
-  planLayer = null
 }
 
 uz.addEventListener('dragover', (e) => {
@@ -644,96 +640,147 @@ document.addEventListener('keydown', (e) => {
 })
 
 // ───────────────────────────── 4 · your house · 5 · the wall with the windows ─────────────────────────────
+// Russia → Yandex (as on nativastu), abroad → free maps (OpenStreetMap / Esri). Our own marks —
+// the house pin, the wall, later the plan and the red line — are drawn on one layer above either map.
 
-let searchMap: L.Map | null = null
-let lineLayer: L.LayerGroup | null = null
-let pinMarker: L.Marker | null = null
+let searchMap: GeoMap | null = null
+let searchProvider: Provider | null = null
+let searchReady: Promise<GeoMap | null> | null = null
+let pinCaption: string | undefined
 
-function initSearchMap() {
-  if (searchMap) return
-  const view = mapView ?? (pin ? { center: pin, zoom: 18 } : startView(region))
-  searchMap = createSearchMap($('searchMap'), view.center, view.zoom, 'scheme')
-  lineLayer = L.layerGroup().addTo(searchMap)
-  if (pin) showPin(addrCaption())
-  drawLine()
-  searchMap.on('moveend', () => {
-    const c = searchMap!.getCenter()
-    mapView = { center: [c.lat, c.lng], zoom: searchMap!.getZoom() }
-    scheduleSave()
-  })
-  searchMap.on('click', (e: L.LeafletMouseEvent) => {
-    const ll: LatLng = [e.latlng.lat, e.latlng.lng]
-    if (step === 4) setPin(ll)
-    else if (step === 5) addWallPoint(ll)
-  })
+async function makeMap(host: HTMLElement, provider: Provider, kind: MapKind, view: View, full: boolean): Promise<GeoMap | null> {
+  showMapError(host, false)
+  try {
+    await loadProvider(provider)
+  } catch {
+    showMapError(host, true)
+    return null
+  }
+  return provider === 'yandex' ? new YandexMap(host, { view, kind, full }) : new FreeMap(host, { view, kind, full }, FREE_TEXT)
 }
 
-function enterMap() {
-  initSearchMap()
-  const map = searchMap!
-  if (step === 4 && !pin && !mapView) {
-    const v = startView(region)
-    map.setView(v.center, v.zoom, { animate: false })
+const FREE_TEXT: FreeText = {
+  scheme: 'Схема',
+  satellite: 'Спутник',
+  hybrid: 'Гибрид',
+  imagery: 'Снимки © Esri, Maxar, Earthstar Geographics',
+  search: 'Поиск адресов © Esri',
+  zoomIn: 'Приблизить',
+  zoomOut: 'Отдалить',
+  whereAmI: 'Где я',
+}
+
+/** «The map didn't load» over a map that failed (no internet, a refused key). */
+function showMapError(host: HTMLElement, on: boolean) {
+  const panel = host.parentElement!
+  let box = panel.querySelector<HTMLElement>('.map-error')
+  if (!box && on) {
+    box = document.createElement('div')
+    box.className = 'map-error'
+    box.innerHTML = '<p>Карта не загрузилась.<br />Проверьте интернет и обновите страницу.</p>'
+    panel.appendChild(box)
   }
-  if (pinMarker) {
-    // the pin can be dragged on «Ваш дом»; on «Стена с окнами» taps mark the wall instead
-    if (step === 4) pinMarker.dragging?.enable()
-    else pinMarker.dragging?.disable()
-    pinMarker.getElement()?.classList.toggle('locked', step !== 4)
-  }
+  if (box) box.hidden = !on
+}
+
+function initSearchMap(): Promise<GeoMap | null> {
+  const provider = providerFor(region)
+  if (searchProvider === provider && searchReady) return searchReady
+  searchMap?.destroy()
+  searchMap = null
+  searchProvider = provider
+  const view = mapView ?? (pin ? { center: pin, zoom: 18 } : startView(region))
+  searchReady = makeMap($('searchMap'), provider, 'scheme', view, true).then((m) => {
+    if (searchProvider !== provider) {
+      m?.destroy()
+      return null
+    }
+    searchMap = m
+    if (!m) return null
+    m.onDraw = drawSearchLayer
+    m.grabber = pinGrabber(m)
+    m.onIdle(() => {
+      mapView = m.getView()
+      scheduleSave()
+    })
+    m.onClick((ll) => {
+      if (step === 4) setPin(ll)
+      else if (step === 5) addWallPoint(ll)
+    })
+    return m
+  })
+  return searchReady
+}
+
+async function enterMap() {
+  const at = step
+  const m = await initSearchMap()
+  if (!m || step !== at) return
   $('searchMap').classList.toggle('drawing', step === 5)
   setTimeout(() => {
-    map.invalidateSize()
-    if (step === 5 && pin) {
-      // look at the house, close enough to see its walls
-      const ll = L.latLng(pin)
-      if (map.getZoom() < 18 || !map.getBounds().pad(-0.15).contains(ll)) map.setView(ll, 19)
-    }
+    m.resize()
+    if (step === 4 && !pin && !mapView) m.setView(startView(region))
+    // on «Стена с окнами», look at the house close enough to see its walls
+    if (step === 5 && pin && (m.getView().zoom < 18 || !m.shows(pin))) m.setView({ center: pin, zoom: 19 })
+    m.redraw()
   }, 60)
+}
+
+/** Street and house number only: «Тверская улица, 13», «Carrer de Mallorca 401». */
+function streetLine(address: string): string {
+  const parts = address.split(',').map((x) => x.trim())
+  return /\d/.test(parts[0]) || parts.length < 2 ? parts[0] : `${parts[0]}, ${parts[1]}`
 }
 
 const addrCaption = () => {
   const a = $('addrVal').textContent ?? ''
-  return a && a !== '—' ? a.split(',').slice(0, 2).join(',') : undefined
+  return a && a !== '—' ? streetLine(a) : undefined
 }
 
-function showPin(caption?: string) {
-  if (!searchMap || !pin) return
-  if (!pinMarker) {
-    pinMarker = goldMarker(pin, caption, true).addTo(searchMap)
-    pinMarker.on('dragend', () => {
-      const ll = pinMarker!.getLatLng()
-      setPin([ll.lat, ll.lng], undefined, true)
-    })
-    if (step !== 4) pinMarker.dragging?.disable()
-  } else {
-    pinMarker.setLatLng(pin)
-    pinMarker.setIcon(pinIcon(caption))
+/** The pin can be dragged onto the exact house on «Ваш дом». */
+function pinGrabber(m: GeoMap): Grabber {
+  let off = { x: 0, y: 0 }
+  return {
+    hit: (p) => {
+      if (step !== 4 || !pin) return false
+      const q = m.toPx(pin)
+      return Math.hypot(q.x - p.x, q.y - p.y) <= 24
+    },
+    start: (p) => {
+      const q = m.toPx(pin!)
+      off = { x: q.x - p.x, y: q.y - p.y }
+    },
+    move: (p) => {
+      pin = m.fromPx({ x: p.x + off.x, y: p.y + off.y })
+      pinCaption = undefined
+      m.redraw()
+    },
+    end: () => pin && setPin(pin),
   }
-  pinMarker.getElement()?.classList.toggle('locked', step !== 4)
 }
 
 /** Put the house pin here; without an address, look the address up. */
-function setPin(ll: LatLng, address?: string, dragged = false) {
+function setPin(ll: LatLng, address?: string) {
   // a house far from the marked wall makes that wall meaningless
-  if (blPts.length === 2 && searchMap && searchMap.distance(ll, midpoint(blPts)) > 150) clearWall()
+  if (blPts.length === 2 && distance(ll, midpoint(blPts)) > 150) clearWall()
   pin = ll
   planCenter = null
   if (address) {
     $('addrVal').textContent = address.split(',').slice(0, 3).join(',')
-    showPin(address.split(',').slice(0, 2).join(','))
+    pinCaption = streetLine(address)
   } else {
     $('addrVal').textContent = '—'
-    if (dragged) pinMarker?.setIcon(pinIcon())
-    else showPin()
+    pinCaption = undefined
     const asked = ll
-    reverseAddress(ll).then((line) => {
+    reverseAddress(providerFor(region), ll).then((line) => {
       if (!line || pin !== asked) return
       $('addrVal').textContent = line.split(',').slice(0, 3).join(',')
-      showPin(line.split(',').slice(0, 2).join(','))
+      pinCaption = streetLine(line)
+      searchMap?.redraw()
       scheduleSave()
     })
   }
+  searchMap?.redraw()
   endNudge()
   updateGuide()
   scheduleSave()
@@ -741,15 +788,71 @@ function setPin(ll: LatLng, address?: string, dragged = false) {
 
 const midpoint = (p: LatLng[]): LatLng => [(p[0][0] + p[1][0]) / 2, (p[0][1] + p[1][1]) / 2]
 
-/** The marked wall, or the one being marked (the old wall stays until the first new point). */
-function drawLine() {
-  if (!lineLayer) return
-  lineLayer.clearLayers()
+/** A white chip with a label, the way the gold pin and the red line are captioned.
+ *  Beside a point it sits on the right, or on the left where the map ends first. */
+function chip(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string, centred = false) {
+  ctx.save()
+  ctx.font = "600 12px 'Vela Sans', 'Manrope', sans-serif"
+  const mapW = ctx.canvas.width / ctx.getTransform().a
+  while (text.length > 4 && ctx.measureText(text).width + 18 > mapW - 16) text = `${text.slice(0, -2).trimEnd()}…`
+  const w = ctx.measureText(text).width + 18
+  const h = 24
+  const left = centred ? x - w / 2 : x + 15 + w > mapW - 8 ? x - 15 - w : x + 15
+  ctx.shadowColor = 'rgba(0,0,0,.28)'
+  ctx.shadowBlur = 8
+  ctx.shadowOffsetY = 2
+  ctx.fillStyle = 'rgba(255,255,255,.96)'
+  ctx.beginPath()
+  ctx.roundRect(left, y - h / 2, w, h, 3)
+  ctx.fill()
+  ctx.shadowColor = 'transparent'
+  ctx.fillStyle = color
+  ctx.textBaseline = 'middle'
+  ctx.fillText(text, left + 9, y + 0.5)
+  ctx.restore()
+}
+
+/** The wall being marked or already marked, then the house pin above it. */
+function drawSearchLayer(ctx: CanvasRenderingContext2D) {
+  const m = searchMap
+  if (!m) return
   const shown = draftPts.length ? draftPts : blPts
-  if (shown.length === 2) L.polyline(shown, { color: CONTOUR, weight: 4, opacity: 1 }).addTo(lineLayer)
-  shown.forEach((ll) =>
-    L.circleMarker(ll, { radius: 7, color: '#fff', weight: 2, fillColor: CONTOUR, fillOpacity: 1 }).addTo(lineLayer!),
-  )
+  const ps = shown.map((ll) => m.toPx(ll))
+  ctx.save()
+  if (ps.length === 2) {
+    ctx.strokeStyle = CONTOUR
+    ctx.lineWidth = 4
+    ctx.lineCap = 'round'
+    ctx.beginPath()
+    ctx.moveTo(ps[0].x, ps[0].y)
+    ctx.lineTo(ps[1].x, ps[1].y)
+    ctx.stroke()
+  }
+  ps.forEach((p) => {
+    ctx.beginPath()
+    ctx.arc(p.x, p.y, 7, 0, 2 * Math.PI)
+    ctx.fillStyle = CONTOUR
+    ctx.fill()
+    ctx.strokeStyle = '#fff'
+    ctx.lineWidth = 2
+    ctx.stroke()
+  })
+  if (pin) {
+    const p = m.toPx(pin)
+    ctx.shadowColor = 'rgba(0,0,0,.35)'
+    ctx.shadowBlur = 8
+    ctx.shadowOffsetY = 2
+    ctx.beginPath()
+    ctx.arc(p.x, p.y, 8, 0, 2 * Math.PI)
+    ctx.fillStyle = '#CABC90'
+    ctx.fill()
+    ctx.shadowColor = 'transparent'
+    ctx.strokeStyle = '#422326'
+    ctx.lineWidth = 3
+    ctx.stroke()
+    if (pinCaption) chip(ctx, pinCaption, p.x, p.y, '#422326')
+  }
+  ctx.restore()
 }
 
 function addWallPoint(ll: LatLng) {
@@ -764,7 +867,7 @@ function addWallPoint(ll: LatLng) {
     showBaseline()
     scheduleSave()
   }
-  drawLine()
+  searchMap?.redraw()
   endNudge()
   updateGuide()
 }
@@ -775,7 +878,7 @@ function clearWall() {
   baselineAz = null
   autoRotDone = false
   planCenter = null
-  drawLine()
+  searchMap?.redraw()
   showBaseline()
 }
 
@@ -800,21 +903,21 @@ $('blClear').addEventListener('click', () => {
   scheduleSave()
 })
 
-// address search, with suggestions while typing
+// address search, with suggestions while typing (as on nativastu)
 const si = $<HTMLInputElement>('msearch')
 const sd = $('sdrop')
 let sTimer = 0
 let searchSeq = 0
 
-async function doSearch(q: string, submitted: boolean) {
+async function doSearch(q: string, submitted = false) {
   if (!q) return
-  initSearchMap()
   const seq = ++searchSeq
-  const c = searchMap!.getCenter()
+  const m = await initSearchMap()
+  if (!m || seq !== searchSeq) return
   // a whole country on screen says nothing about the street; a city does
-  const near: LatLng | null = searchMap!.getZoom() >= 10 ? [c.lat, c.lng] : null
+  const near = m.getView().zoom >= 10 ? m.getBounds() : null
   try {
-    const places = await searchPlaces(q, region, near, submitted)
+    const places = await searchPlaces(providerFor(region), q, near, submitted)
     if (seq !== searchSeq) return
     if (!places.length) {
       sd.innerHTML = '<div class="si si-empty">Ничего не найдено — нажмите на свой дом на карте</div>'
@@ -828,7 +931,7 @@ async function doSearch(q: string, submitted: boolean) {
     }
   } catch {
     if (seq !== searchSeq) return
-    sd.innerHTML = '<div class="si si-empty">Ошибка поиска — попробуйте ещё раз</div>'
+    sd.innerHTML = '<div class="si si-empty">Поиск адреса сейчас не работает — найдите дом на карте и нажмите на него</div>'
   }
   sd.hidden = false
 }
@@ -838,16 +941,15 @@ async function pickPlace(place: Place) {
   si.value = place.address
   si.blur()
   const seq = ++searchSeq
-  const p = await resolvePlace(place).catch(() => null)
-  if (seq !== searchSeq || !searchMap) return
-  if (!p) {
+  const ll = await resolvePlace(place)
+  if (seq !== searchSeq) return
+  if (!ll) {
     sd.innerHTML = '<div class="si si-empty">Не удалось открыть адрес — попробуйте ещё раз</div>'
     sd.hidden = false
     return
   }
-  const ll: LatLng = [p.lat, p.lng]
-  searchMap.setView(ll, 19)
-  setPin(ll, p.address)
+  searchMap?.setView({ center: ll, zoom: 19 })
+  setPin(ll, place.address)
 }
 
 si.addEventListener('input', () => {
@@ -856,7 +958,7 @@ si.addEventListener('input', () => {
   if (q.length < 3) {
     searchSeq++
     sd.hidden = true
-  } else sTimer = window.setTimeout(() => doSearch(q, false), 400)
+  } else sTimer = window.setTimeout(() => doSearch(q), 400)
 })
 si.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
@@ -874,93 +976,174 @@ document.addEventListener('click', (e) => {
 
 // ───────────────────────────── 6 · rotate the plan over the map ─────────────────────────────
 
-let rotMap: L.Map | null = null
-let rotMapRegion: Region | null = null
-let planLayer: PlanLayer | null = null
-let wallLayer: L.LayerGroup | null = null
+let rotMap: GeoMap | null = null
+let rotProvider: Provider | null = null
+let rotReady: Promise<GeoMap | null> | null = null
+let planMpp = 0.05 // metres per plan-image pixel
 
 /** Metres per image pixel that make the plan's longest wall as long as the wall marked on the map. */
 function matchedMpp(): number {
-  if (!img || !rotMap || blPts.length !== 2) return 0.05
+  if (!img || blPts.length !== 2) return 0.05
   let longest = 0
   for (let i = 0; i < pts.length; i++) {
     const a = pts[i]
     const b = pts[(i + 1) % pts.length]
     longest = Math.max(longest, Math.hypot(b.x - a.x, b.y - a.y))
   }
-  const wall = rotMap.distance(blPts[0], blPts[1])
+  const wall = distance(blPts[0], blPts[1])
   const side = Math.max(img.width, img.height)
   // keep the plan between 6 m and 400 m across, whatever was clicked
   return clamp(longest > 0 ? wall / longest : 0.05, 6 / side, 400 / side)
 }
 
-function enterRotate() {
-  if (!img || blPts.length !== 2) return
-  const kind = region === 'ru' ? 'satellite' : 'hybrid' // as on the original
-  if (rotMap && rotMapRegion !== region) {
-    rotMap.remove()
-    rotMap = null
-    planLayer = null
-  }
-  if (!rotMap) {
-    rotMap = createRotateMap($('rpMap'), kind)
-    rotMapRegion = region
-    wallLayer = L.layerGroup().addTo(rotMap)
-  }
-  const map = rotMap
-  map.invalidateSize()
-
-  // the red line lies on the real wall and runs on past both corners
-  const [a, b] = blPts
-  const d: LatLng = [b[0] - a[0], b[1] - a[1]]
-  const far: [LatLng, LatLng] = [
-    [a[0] - d[0] * 4, a[1] - d[1] * 4],
-    [b[0] + d[0] * 4, b[1] + d[1] * 4],
-  ]
-  wallLayer!.clearLayers()
-  L.polyline(far, { pane: 'linePane', color: RED, weight: 2.5, opacity: 0.9, dashArray: '10 7', interactive: false }).addTo(wallLayer!)
-  L.polyline(blPts, { pane: 'linePane', color: RED, weight: 4, opacity: 1, interactive: false })
-    .bindTooltip('стена с окнами', { permanent: true, direction: 'top', className: 'wall-tip', offset: [0, -6] })
-    .addTo(wallLayer!)
-
-  const fresh = !planCenter
-  if (!planCenter) planCenter = pin ?? midpoint(blPts)
-  const mpp = matchedMpp() * planScale
-  // show the whole plan and the whole marked wall
-  const across = Math.hypot(img.width, img.height) * mpp
-  const view = L.latLngBounds([a, b]).extend(L.latLng(planCenter).toBounds(across))
-  map.fitBounds(view, { padding: [24, 24], maxZoom: 20, animate: false })
-  if (!planLayer) {
-    planLayer = new PlanLayer({ img, pts, stroke: CONTOUR }, L.latLng(planCenter), mpp)
-    planLayer.onMoved = () => {
-      const c = planLayer!.center
-      planCenter = [c.lat, c.lng]
-      scheduleSave()
+function initRotMap(): Promise<GeoMap | null> {
+  const provider = providerFor(region)
+  if (rotProvider === provider && rotReady) return rotReady
+  rotMap?.destroy()
+  rotMap = null
+  rotProvider = provider
+  const kind = provider === 'yandex' ? 'satellite' : 'hybrid' // as on the original
+  const view = { center: pin ?? midpoint(blPts), zoom: 18 }
+  rotReady = makeMap($('rpMap'), provider, kind, view, false).then((m) => {
+    if (rotProvider !== provider) {
+      m?.destroy()
+      return null
     }
-    planLayer.addTo(map)
-  } else {
-    planLayer.center = L.latLng(planCenter)
-    planLayer.mpp = mpp
-  }
-  planLayer.alpha = planTrans
-  if (fresh) planLayer.center = L.latLng(planCenter)
+    rotMap = m
+    if (!m) return null
+    m.onDraw = drawRotateLayer
+    m.grabber = planGrabber(m)
+    return m
+  })
+  return rotReady
+}
+
+/** Points a given distance north, south, east and west of a centre. */
+function around(c: LatLng, metres: number): LatLng[] {
+  const dLat = metres / 111320
+  const dLng = metres / (111320 * Math.cos((c[0] * Math.PI) / 180))
+  return [
+    [c[0] + dLat, c[1]],
+    [c[0] - dLat, c[1]],
+    [c[0], c[1] + dLng],
+    [c[0], c[1] - dLng],
+  ]
+}
+
+async function enterRotate() {
+  if (!img || blPts.length !== 2) return
+  const m = await initRotMap()
+  if (!m || step !== 6) return
+  if (!planCenter) planCenter = pin ?? midpoint(blPts)
+  planMpp = matchedMpp() * planScale
+  m.resize()
+  // show the whole plan and the whole marked wall
+  const across = Math.hypot(img.width, img.height) * planMpp
+  m.fit([...blPts, ...around(planCenter, across / 2)], 24, 20)
 
   if (!rotTouched) rot = 0
   $<HTMLInputElement>('rotSlider').value = String(rot)
   if (baselineAz !== null && !autoRotDone) {
     autoRotDone = true
     autoAlign(true)
-  } else {
-    showRotation()
-    planLayer.rot = rot
-    planLayer.redraw()
-  }
+  } else showRotation()
   showSize()
   showTrans()
   setTimeout(() => {
-    map.invalidateSize()
-    planLayer?.redraw()
+    m.resize()
+    m.redraw()
   }, 60)
+}
+
+/** On-screen size of one plan-image pixel. */
+const planScreenScale = (m: GeoMap) => planMpp / m.metresPerPx()
+
+/** The plan, then the red line on the real wall above it. */
+function drawRotateLayer(ctx: CanvasRenderingContext2D) {
+  const m = rotMap
+  if (!m || !img || blPts.length !== 2) return
+  if (planCenter) {
+    const s = planScreenScale(m)
+    const w = img.width * s
+    const h = img.height * s
+    const p = m.toPx(planCenter)
+    ctx.save()
+    ctx.translate(p.x, p.y)
+    ctx.rotate((rot * Math.PI) / 180)
+    ctx.globalAlpha = planTrans
+    ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(img, -w / 2, -h / 2, w, h)
+    if (pts.length > 2) {
+      ctx.globalAlpha = Math.min(1.5 * planTrans, 1)
+      ctx.strokeStyle = CONTOUR
+      ctx.lineWidth = 2
+      ctx.lineJoin = 'round'
+      ctx.beginPath()
+      pts.forEach((q, i) => {
+        const x = q.x * s - w / 2
+        const y = q.y * s - h / 2
+        if (i) ctx.lineTo(x, y)
+        else ctx.moveTo(x, y)
+      })
+      ctx.closePath()
+      ctx.stroke()
+    }
+    ctx.restore()
+  }
+
+  // the red line lies on the real wall and runs on past both corners
+  const a = m.toPx(blPts[0])
+  const b = m.toPx(blPts[1])
+  const len = Math.hypot(b.x - a.x, b.y - a.y) || 1
+  const ux = (b.x - a.x) / len
+  const uy = (b.y - a.y) / len
+  const far = 2 * Math.max(m.host.clientWidth, m.host.clientHeight)
+  ctx.save()
+  ctx.strokeStyle = RED
+  ctx.globalAlpha = 0.9
+  ctx.lineWidth = 2.5
+  ctx.setLineDash([10, 7])
+  ctx.beginPath()
+  ctx.moveTo(a.x - ux * far, a.y - uy * far)
+  ctx.lineTo(b.x + ux * far, b.y + uy * far)
+  ctx.stroke()
+  ctx.setLineDash([])
+  ctx.globalAlpha = 1
+  ctx.lineWidth = 4
+  ctx.lineCap = 'round'
+  ctx.beginPath()
+  ctx.moveTo(a.x, a.y)
+  ctx.lineTo(b.x, b.y)
+  ctx.stroke()
+  ctx.restore()
+  chip(ctx, 'стена с окнами', (a.x + b.x) / 2, (a.y + b.y) / 2 - 20, RED, true)
+}
+
+/** Dragging the plan itself moves it over the building; dragging elsewhere pans the map. */
+function planGrabber(m: GeoMap): Grabber {
+  let off = { x: 0, y: 0 }
+  return {
+    hit: (p) => {
+      if (!img || !planCenter) return false
+      const c = m.toPx(planCenter)
+      const a = (rot * Math.PI) / 180
+      const dx = p.x - c.x
+      const dy = p.y - c.y
+      const ux = dx * Math.cos(a) + dy * Math.sin(a)
+      const uy = -dx * Math.sin(a) + dy * Math.cos(a)
+      const s = planScreenScale(m)
+      return Math.abs(ux) <= (img.width * s) / 2 && Math.abs(uy) <= (img.height * s) / 2
+    },
+    start: (p) => {
+      const c = m.toPx(planCenter!)
+      off = { x: c.x - p.x, y: c.y - p.y }
+    },
+    move: (p) => {
+      planCenter = m.fromPx({ x: p.x + off.x, y: p.y + off.y })
+      m.redraw()
+    },
+    end: () => scheduleSave(),
+  }
 }
 
 /** The building's tilt from the cardinal directions, folded into −45…+45°. */
@@ -986,10 +1169,7 @@ function setRot(v: number) {
   rotTouched = true
   $<HTMLInputElement>('rotSlider').value = String(rot)
   showRotation()
-  if (planLayer) {
-    planLayer.rot = rot
-    planLayer.redraw()
-  }
+  rotMap?.redraw()
   scheduleSave()
 }
 
@@ -1056,10 +1236,8 @@ function showSize() {
 $('sizeSlider').addEventListener('input', (e) => {
   planScale = 2 ** (parseInt((e.target as HTMLInputElement).value, 10) / 100)
   showSize()
-  if (planLayer) {
-    planLayer.mpp = matchedMpp() * planScale
-    planLayer.redraw()
-  }
+  planMpp = matchedMpp() * planScale
+  rotMap?.redraw()
   scheduleSave()
 })
 
@@ -1071,10 +1249,7 @@ function showTrans() {
 $('transSlider').addEventListener('input', (e) => {
   planTrans = parseInt((e.target as HTMLInputElement).value, 10) / 100
   showTrans()
-  if (planLayer) {
-    planLayer.alpha = planTrans
-    planLayer.redraw()
-  }
+  rotMap?.redraw()
   scheduleSave()
 })
 $('applyRotBtn').addEventListener('click', () => {
@@ -1220,6 +1395,8 @@ function saveFallback(out: HTMLCanvasElement, mobile: boolean) {
 
 interface Saved {
   v: 2
+  /** when it was saved — progress older than 30 days is dropped (map providers' terms on keeping their data) */
+  savedAt?: number
   step: number
   region: Region
   pts: Pt[]
@@ -1247,6 +1424,7 @@ let restoring = false
 function snapshot(): Saved {
   return {
     v: 2,
+    savedAt: Date.now(),
     step,
     region,
     pts,
@@ -1282,6 +1460,10 @@ window.addEventListener('pagehide', saveNow)
 async function restore() {
   const [plan, s] = await Promise.all([kvGet<string>('plan'), kvGet<Saved>('state')])
   if (!plan || !s || s.v !== 2) return
+  if (s.savedAt && Date.now() - s.savedAt > 30 * 24 * 3600 * 1000) {
+    await kvClear()
+    return
+  }
   restoring = true
   try {
     await showPlan(plan)
@@ -1293,6 +1475,7 @@ async function restore() {
     updContUI()
     pin = s.pin
     $('addrVal').textContent = s.addr
+    pinCaption = addrCaption()
     mapView = s.mapView
     si.value = s.search
     baselineAz = s.baselineAz
@@ -1349,8 +1532,8 @@ let resizeTimer = 0
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer)
   resizeTimer = window.setTimeout(() => {
-    searchMap?.invalidateSize()
-    rotMap?.invalidateSize()
+    searchMap?.resize()
+    rotMap?.resize()
     if ((step <= 3 || step === LAST) && img) {
       resetView()
       fitCanvas()

@@ -21,3 +21,13 @@ export const LINKS = {
   /** «Нет плана? Постройте в приложении…» */
   magicPlan: 'https://apps.apple.com/us/app/magicplan/id427424432',
 }
+
+/**
+ * Yandex Maps key, used for flats in Russia (as on nativastu). A browser key: it sits in the
+ * page by design and is locked by HTTP Referer in the Yandex console (tymur0n@yandex.ru,
+ * Key #1 — JavaScript API + Geocoder, free plan: 1,000 address lookups a day).
+ * Flats abroad use free maps (OpenStreetMap / Esri) that need no key.
+ */
+export const MAP_KEYS = {
+  yandex: '4961d40e-6cdf-4c4b-a85d-f073ab5d7646',
+}
