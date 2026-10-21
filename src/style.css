@@ -599,25 +599,16 @@ button.si:hover, button.si:focus-visible { background: var(--cream); color: var(
 
 .lmap { background: #DDD6CC; }
 #searchMap { flex: 1; min-height: 0; }
-#searchMap.drawing, #searchMap.drawing .leaflet-interactive, #searchMap.drawing .leaflet-grab { cursor: crosshair; }
+/* our layer over the map: the pin, the wall, the plan, the red line */
+.map-overlay { position: absolute; left: 0; top: 0; pointer-events: none; }
+#searchMap.drawing, #searchMap.drawing * { cursor: crosshair !important; }
+.map-can-grab, .map-can-grab * { cursor: grab !important; }
+.map-grabbing, .map-grabbing * { cursor: grabbing !important; }
+.mpanel, .rppanel { position: relative; }
 
 /* plan over the map (step 5) */
 .rppanel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 #rpMap { flex: 1; min-height: 0; }
-.plan-layer { position: absolute; left: 0; top: 0; }
-.plan-layer.grabbing { cursor: grabbing !important; }
-.wall-tip {
-  background: rgba(255, 255, 255, .94);
-  border: none;
-  border-radius: var(--r);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, .3);
-  padding: 3px 8px;
-  font-family: var(--sans);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--red);
-}
-.wall-tip::before { display: none; }
 
 /* the instruction strip over the plan / map */
 .guide {
@@ -643,6 +634,8 @@ button.si:hover, button.si:focus-visible { background: var(--cream); color: var(
   box-shadow: 0 6px 20px rgba(0, 0, 0, .3);
 }
 .guide.warn span { background: var(--wine); border-color: rgba(255, 255, 255, .4); animation: nudge .45s ease; }
+/* on the maps, keep clear of the attribution line at the bottom */
+body[data-step="3"] .guide, body[data-step="4"] .guide, body[data-step="5"] .guide { bottom: 48px; }
 @keyframes nudge {
   0%, 100% { transform: translateX(0); }
   20% { transform: translateX(-7px); }
@@ -693,35 +686,6 @@ button.si:hover, button.si:focus-visible { background: var(--cream); color: var(
 .map-geo svg .fill { fill: var(--burgundy); stroke: none; }
 .map-geo.busy svg { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-
-.gold-marker { position: relative; }
-.gold-marker.leaflet-marker-draggable { cursor: grab; }
-.gold-marker.locked { pointer-events: none; }
-.gm-hit { position: absolute; left: -22px; top: -22px; width: 44px; height: 44px; border-radius: 50%; } /* a finger-sized handle */
-.gm-dot {
-  position: absolute;
-  left: -8px;
-  top: -8px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--gold);
-  border: 3px solid var(--burgundy);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, .35);
-}
-.gm-cap {
-  position: absolute;
-  left: 14px;
-  top: -12px;
-  white-space: nowrap;
-  padding: 4px 9px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--burgundy);
-  background: var(--white);
-  border-radius: var(--r);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
-}
 
 /* ── footer ── */
 .foot {
@@ -900,6 +864,7 @@ button.si:hover, button.si:focus-visible { background: var(--cream); color: var(
   body.fit .sidebar-foot .btn { min-height: 48px; }
   body.fit .cpanel { padding: 10px; }
   body.fit .guide { left: 8px; right: 8px; bottom: 22px; }
+  body.fit[data-step="3"] .guide, body.fit[data-step="4"] .guide, body.fit[data-step="5"] .guide { bottom: 46px; }
   body.fit .guide span { padding: 8px 12px; font-size: 13.5px; }
 }
 

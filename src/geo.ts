@@ -40,6 +40,17 @@ export function centroid(poly: Pt[]): Pt {
   return { x: cx / (6 * a), y: cy / (6 * a) }
 }
 
+/** Great-circle distance in metres. */
+export function distance(a: [number, number], b: [number, number]): number {
+  const R = 6371008.8
+  const φ1 = (a[0] * Math.PI) / 180
+  const φ2 = (b[0] * Math.PI) / 180
+  const dφ = φ2 - φ1
+  const dλ = ((b[1] - a[1]) * Math.PI) / 180
+  const h = Math.sin(dφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ / 2) ** 2
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)))
+}
+
 /** Initial great-circle bearing from A to B, degrees clockwise from north. */
 export function bearing(a: [number, number], b: [number, number]): number {
   const φ1 = (a[0] * Math.PI) / 180
@@ -107,7 +118,7 @@ export const ELEMENT_COLORS = { air: '#6FB1DA', water: '#2FB3A3', fire: '#ED8B3C
 
 /**
  * Share of the apartment's area per element. The four quadrants around the centre
- * are Air (NW), Water (NE), Fire (SE), Earth (SW); the central square of Space (Ether) holds
+ * are Air (NW), Water (NE), Fire (SE), Earth (SW); the central square of Ether holds
  * 1/5 of the area and is cut out of the quadrants. North is screen-up.
  */
 export function elementShares(poly: Pt[], c: Pt, half: number): ElementShare[] | null {
@@ -118,10 +129,10 @@ export function elementShares(poly: Pt[], c: Pt, half: number): ElementShare[] |
     Math.max(0, area(q) - area(clipRect(q, c.x - half, c.x + half, c.y - half, c.y + half)))
   const pct = (v: number) => (v / total) * 100
   return [
-    { name: 'Space', color: '#FFFFFF', pct: pct(area(clipRect(poly, c.x - half, c.x + half, c.y - half, c.y + half))) },
-    { name: 'Air', color: ELEMENT_COLORS.air, pct: pct(withoutEther(quad(true, true))) },
-    { name: 'Water', color: ELEMENT_COLORS.water, pct: pct(withoutEther(quad(false, true))) },
-    { name: 'Fire', color: ELEMENT_COLORS.fire, pct: pct(withoutEther(quad(false, false))) },
-    { name: 'Earth', color: ELEMENT_COLORS.earth, pct: pct(withoutEther(quad(true, false))) },
+    { name: 'Эфир', color: '#FFFFFF', pct: pct(area(clipRect(poly, c.x - half, c.x + half, c.y - half, c.y + half))) },
+    { name: 'Воздух', color: ELEMENT_COLORS.air, pct: pct(withoutEther(quad(true, true))) },
+    { name: 'Вода', color: ELEMENT_COLORS.water, pct: pct(withoutEther(quad(false, true))) },
+    { name: 'Огонь', color: ELEMENT_COLORS.fire, pct: pct(withoutEther(quad(false, false))) },
+    { name: 'Земля', color: ELEMENT_COLORS.earth, pct: pct(withoutEther(quad(true, false))) },
   ]
 }

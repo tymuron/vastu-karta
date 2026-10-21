@@ -28,14 +28,16 @@ outline on, and `style.css` hides the sidebar on phones for `data-step="3"` (RU:
 
 - All copy in English (British spelling): `index.html`, `src/main.ts` (guide strip, warnings,
   hints), `src/result.ts` (N NE E SE S SW W NW, Space/Air/Water/Fire/Earth, «Deviation»),
-  `src/geo.ts` (element names), `src/mapkit.ts` (Map / Satellite / Hybrid, attributions).
+  `src/geo.ts` (element names); the map's Map / Satellite / Hybrid switch and attributions are
+  `FREE_TEXT` in `src/main.ts`.
 - Decimals with a point (`−36.6°`, `12.5%`), not a comma.
 - Geocoding in English: Esri `langCode=en`, Nominatim `accept-language=en`, no country filter.
 - Where the map opens (`startView`): one worldwide time-zone lookup — Russian zones open on
   their city, more English-speaking zones added (India, Sri Lanka, Nepal, SE Asia, South
   Africa, more US/Canada/Australia cities, New Zealand); otherwise the continent.
 - English title, meta, og (`en_GB`), JSON-LD, `lang="en"`; the Latin Cormorant is preloaded.
-- Privacy text states that the plan and progress are kept in this browser until «Start over».
+- Privacy text states that the plan and progress are kept in this browser for up to 30 days
+  («Start over» deletes them at once).
 - PNG file name `vastu-map-annaromeo.png`; IndexedDB database `vastu-map`.
 - Links (`src/config.ts`) are the same as the Russian builder's — annaromeovastu.com and its
   /course, which are in Russian (Tymur's call; change them there when an English page exists).
@@ -43,14 +45,15 @@ outline on, and `style.css` hides the sidebar on phones for `data-step="3"` (RU:
 
 ## Stack
 
-Vanilla TypeScript + Vite 5 + Leaflet (+ pdf.js, lazy). Canvas 2D for the plan and the map overlay.
+Vanilla TypeScript + Vite 5 + Leaflet (+ pdf.js, lazy). Canvas 2D for the plan and our map layer.
 Fonts are self-hosted in `public/fonts`.
 
 ```
 src/main.ts     the six steps, navigation, zoom/drag, PNG export, saved progress
 src/result.ts   draws the finished map (all layers)
 src/mapkit.ts   maps, address search, where the map opens
-src/planlayer.ts the plan on the step-5 map (pinned to the ground)
+src/maps/base.ts our drawing layer over the map + grabbing the pin / plan (same file as the RU copy)
+src/maps/free.ts the free maps and their address search (RU copy's file, English header)
 src/geo.ts      centroid, area, azimuth, element shares
 src/pdf.ts      first page of a PDF → plan picture
 src/store.ts    progress kept in the browser (IndexedDB)
@@ -63,8 +66,14 @@ npm run dev      # http://localhost:5173
 npm run build    # → dist/ (static, deploy anywhere)
 ```
 
-Maps are keyless, as in the Russian copy: OpenStreetMap tiles, Esri World Imagery (+ place
-names and roads for Hybrid), Esri World Geocoding with OSM Nominatim as a fallback on «Find».
+Maps are keyless: OpenStreetMap tiles, Esri World Imagery (+ place names and roads for Hybrid),
+Esri World Geocoding with OSM Nominatim as a fallback on «Find». Our marks (pin + caption, wall,
+plan, red line) are drawn on one canvas in a Leaflet pane (`src/maps/base.ts`, the same layer the
+Russian copy draws over Yandex). Progress older than 30 days is dropped on load.
+
+Google Maps was tried on 21 Oct 2026 (nativastu uses it abroad) and dropped the same day:
+Google's free trial now asks for a prepayment, so Tymur chose the free maps. The Russian copy
+uses Yandex for flats in Russia only.
 
 ## Deploy
 
