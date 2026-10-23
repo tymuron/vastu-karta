@@ -1,12 +1,12 @@
-// One map surface over the free maps (OpenStreetMap / Esri), shared with the Russian copy, which
-// also runs Yandex. The provider draws tiles and its own buttons; everything of ours — the house
-// pin, the wall, the plan, the red line — is drawn on one canvas above the tiles. Fingers on the pin or the plan are held back from the map, so it doesn't pan.
+// One map surface over Google Maps, shared with the Russian copy, which also runs Yandex. The
+// provider draws tiles and its own buttons; everything of ours — the house pin, the wall, the
+// plan, the red line — is drawn on one canvas above the tiles. Fingers on the pin or the plan are held back from the map, so it doesn't pan.
 
 import { distance } from '../geo'
 
 export type LatLng = [number, number]
 export type Region = 'ru' | 'abroad'
-export type Provider = 'yandex' | 'free'
+export type Provider = 'yandex' | 'google'
 export type MapKind = 'scheme' | 'satellite' | 'hybrid'
 export interface Pt {
   x: number

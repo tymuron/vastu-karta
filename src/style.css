@@ -605,6 +605,17 @@ button.si:hover, button.si:focus-visible { background: var(--cream); color: var(
 .map-can-grab, .map-can-grab * { cursor: grab !important; }
 .map-grabbing, .map-grabbing * { cursor: grabbing !important; }
 .mpanel, .rppanel { position: relative; }
+.map-error {
+  position: absolute;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--burgundy);
+  text-align: center;
+}
+.map-error p { font-size: 15px; line-height: 1.6; color: var(--cream); }
 
 /* plan over the map (step 5) */
 .rppanel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
@@ -634,7 +645,7 @@ button.si:hover, button.si:focus-visible { background: var(--cream); color: var(
   box-shadow: 0 6px 20px rgba(0, 0, 0, .3);
 }
 .guide.warn span { background: var(--wine); border-color: rgba(255, 255, 255, .4); animation: nudge .45s ease; }
-/* on the maps, keep clear of the attribution line at the bottom */
+/* on the maps, keep clear of Google's own terms line at the bottom */
 body[data-step="3"] .guide, body[data-step="4"] .guide, body[data-step="5"] .guide { bottom: 48px; }
 @keyframes nudge {
   0%, 100% { transform: translateX(0); }
@@ -644,36 +655,11 @@ body[data-step="3"] .guide, body[data-step="4"] .guide, body[data-step="5"] .gui
   80% { transform: translateX(2px); }
 }
 
-/* leaflet, in the brand */
-.leaflet-container { font-family: var(--sans); }
-.leaflet-bar { border: none !important; border-radius: var(--r) !important; box-shadow: 0 4px 14px rgba(66, 35, 38, .22) !important; }
-.leaflet-bar a { width: 36px !important; height: 36px !important; line-height: 34px !important; color: var(--burgundy) !important; font-size: 20px !important; }
-.leaflet-bar a:hover { background: var(--cream) !important; }
-.leaflet-control-attribution { font-size: 10px; background: rgba(244, 242, 237, .8) !important; color: var(--muted); }
-.leaflet-control-attribution a { color: var(--burgundy); }
-.map-types {
-  display: flex;
-  background: var(--white);
-  border-radius: var(--r);
-  box-shadow: 0 4px 14px rgba(66, 35, 38, .22);
-  overflow: hidden;
-}
-.map-types button {
-  padding: 9px 13px;
-  border: none;
-  background: none;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-  color: var(--burgundy);
-  cursor: pointer;
-}
-.map-types button + button { border-left: 1px solid var(--line); }
-.map-types button.on { background: var(--burgundy); color: var(--gold); }
+/* «where am I» on the Google map, sized and spaced like Google's own controls */
 .map-geo {
-  width: 36px;
-  height: 36px;
+  margin: 10px;
+  width: 40px;
+  height: 40px;
   display: grid;
   place-items: center;
   background: var(--white);

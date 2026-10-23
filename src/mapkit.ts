@@ -1,25 +1,23 @@
-// The map and address search: free maps everywhere (OpenStreetMap / Esri imagery, Esri address
-// search with Nominatim as its fallback) — no key, no card. The Russian copy uses Yandex for flats in Russia.
+// The map and address search: Google Maps everywhere — the English site is for flats abroad,
+// and nativastu uses Google outside Russia. No other map is used.
 
 import type { LatLng } from './maps/base'
-import { freeResolve, freeReverse, freeSearch } from './maps/free'
+import { googleReverse, googleSearch, loadGoogle } from './maps/google'
 
 export type { LatLng } from './maps/base'
+
+export const loadMaps = () => loadGoogle('en')
 
 export interface Place {
   /** full address line, street first */
   address: string
-  lat?: number
-  lng?: number
-  /** Esri suggestion key, turned into coordinates when picked */
-  magicKey?: string
+  lat: number
+  lng: number
 }
 
-/** Up to 5 places — near the visible map, and with the house number typed ranked first.
- *  `submitted`: «Find» or Enter was pressed, not just typing. */
-export async function searchPlaces(q: string, near: [LatLng, LatLng] | null, submitted: boolean): Promise<Place[]> {
-  const centre = near ? ([(near[0][0] + near[1][0]) / 2, (near[0][1] + near[1][1]) / 2] as LatLng) : null
-  const list: Place[] = await freeSearch(q, centre, 'en', submitted)
+/** Up to 5 places — near the visible map, and with the house number typed ranked first. */
+export async function searchPlaces(q: string, near: [LatLng, LatLng] | null): Promise<Place[]> {
+  const list = await googleSearch(q, near)
   const seen = new Set<string>()
   const uniq = list.filter((x) => !seen.has(x.address) && seen.add(x.address))
   const nums = q.match(/\d+[a-z]?/gi) ?? []
@@ -27,19 +25,10 @@ export async function searchPlaces(q: string, near: [LatLng, LatLng] | null, sub
   return [...uniq.filter((x) => hasNums(x.address)), ...uniq.filter((x) => !hasNums(x.address))].slice(0, 5)
 }
 
-/** Coordinates of a picked place (suggestions come without them). */
-export async function resolvePlace(place: Place): Promise<LatLng | null> {
-  try {
-    return await freeResolve(place, 'en')
-  } catch {
-    return null
-  }
-}
-
 /** Address line of the building at a point (street first). */
 export async function reverseAddress(ll: LatLng): Promise<string | null> {
   try {
-    return await freeReverse(ll, 'en')
+    return await googleReverse(ll)
   } catch {
     return null
   }

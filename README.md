@@ -28,10 +28,9 @@ outline on, and `style.css` hides the sidebar on phones for `data-step="3"` (RU:
 
 - All copy in English (British spelling): `index.html`, `src/main.ts` (guide strip, warnings,
   hints), `src/result.ts` (N NE E SE S SW W NW, Space/Air/Water/Fire/Earth, «Deviation»),
-  `src/geo.ts` (element names); the map's Map / Satellite / Hybrid switch and attributions are
-  `FREE_TEXT` in `src/main.ts`.
+  `src/geo.ts` (element names). Google draws its own map buttons in English.
 - Decimals with a point (`−36.6°`, `12.5%`), not a comma.
-- Geocoding in English: Esri `langCode=en`, Nominatim `accept-language=en`, no country filter.
+- Maps and geocoding: Google Maps in English (`language=en`), worldwide, no country filter.
 - Where the map opens (`startView`): one worldwide time-zone lookup — Russian zones open on
   their city, more English-speaking zones added (India, Sri Lanka, Nepal, SE Asia, South
   Africa, more US/Canada/Australia cities, New Zealand); otherwise the continent.
@@ -45,7 +44,7 @@ outline on, and `style.css` hides the sidebar on phones for `data-step="3"` (RU:
 
 ## Stack
 
-Vanilla TypeScript + Vite 5 + Leaflet (+ pdf.js, lazy). Canvas 2D for the plan and our map layer.
+Vanilla TypeScript + Vite 5 + Google Maps JS API (+ pdf.js, lazy). Canvas 2D for the plan and our map layer.
 Fonts are self-hosted in `public/fonts`.
 
 ```
@@ -53,7 +52,7 @@ src/main.ts     the six steps, navigation, zoom/drag, PNG export, saved progress
 src/result.ts   draws the finished map (all layers)
 src/mapkit.ts   maps, address search, where the map opens
 src/maps/base.ts our drawing layer over the map + grabbing the pin / plan (same file as the RU copy)
-src/maps/free.ts the free maps and their address search (RU copy's file, English header)
+src/maps/google.ts Google Maps and its address search (RU copy's file, English «Where am I»)
 src/geo.ts      centroid, area, azimuth, element shares
 src/pdf.ts      first page of a PDF → plan picture
 src/store.ts    progress kept in the browser (IndexedDB)
@@ -66,14 +65,17 @@ npm run dev      # http://localhost:5173
 npm run build    # → dist/ (static, deploy anywhere)
 ```
 
-Maps are keyless: OpenStreetMap tiles, Esri World Imagery (+ place names and roads for Hybrid),
-Esri World Geocoding with OSM Nominatim as a fallback on «Find». Our marks (pin + caption, wall,
-plan, red line) are drawn on one canvas in a Leaflet pane (`src/maps/base.ts`, the same layer the
-Russian copy draws over Yandex). Progress older than 30 days is dropped on load.
+Maps: **Google Maps** everywhere (Tymur's call — the Russian copy uses Yandex in Russia and
+Google abroad, as nativastu does). No fallback: if Google fails or refuses the key, a «The map
+didn't load» box covers the map. The browser key lives in `src/config.ts` → `MAP_KEYS.google`
+(Google Cloud, tymurchystiakov07@gmail.com, locked to our sites). Google gives 10,000 free map
+loads and 10,000 free geocodes a month, then bills the billing account's card. Our marks (pin +
+caption, wall, plan, red line) are drawn on one canvas in Google's overlay pane
+(`src/maps/base.ts`). Progress older than 30 days is dropped on load.
 
-Google Maps was tried on 21 Oct 2026 (nativastu uses it abroad) and dropped the same day:
-Google's free trial now asks for a prepayment, so Tymur chose the free maps. The Russian copy
-uses Yandex for flats in Russia only.
+On 21 Oct 2026 Google's free trial asked for a prepayment, so this site ran on the free maps
+(OpenStreetMap / Esri) for two days (commit 47e8930); on 23 Oct Anna chose to pay it and use
+Google.
 
 ## Deploy
 

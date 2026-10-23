@@ -21,3 +21,12 @@ export const LINKS = {
   /** «No plan? You can draw one in the magicplan app» */
   magicPlan: 'https://apps.apple.com/us/app/magicplan/id427424432',
 }
+
+/**
+ * Google Maps browser key (Maps JavaScript API + Geocoding API). It sits in the page by design
+ * and is locked to our sites in Google Cloud (tymurchystiakov07@gmail.com, website
+ * restrictions). Without it Google shows no map at all.
+ */
+export const MAP_KEYS = {
+  google: 'AIzaSyBxMDuvIyP07j_9PP33vM5xRj8dn4R8Cpo',
+}

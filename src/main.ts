@@ -1,9 +1,9 @@
 import './style.css'
 import { BRAND, LINKS } from './config'
 import { bearing, centroid, distance, longestEdgeAngle, norm360, type Pt } from './geo'
-import { escapeHtml, resolvePlace, reverseAddress, searchPlaces, startView, type LatLng, type Place } from './mapkit'
+import { escapeHtml, loadMaps, reverseAddress, searchPlaces, startView, type LatLng, type Place } from './mapkit'
 import type { GeoMap, Grabber, MapKind, View } from './maps/base'
-import { FreeMap, type FreeText } from './maps/free'
+import { GoogleMap } from './maps/google'
 import { pdfToDataUrl } from './pdf'
 import { CONTOUR, drawResult, type Layers } from './result'
 import { kvClear, kvGet, kvSet } from './store'
@@ -612,27 +612,38 @@ document.addEventListener('keydown', (e) => {
 })
 
 // ───────────────────────────── 3 · your building · 4 · the wall with the windows ─────────────────────────────
-// Free maps (OpenStreetMap / Esri). Our own marks — the house pin, the wall, later the plan and
-// the red line — are drawn on one layer above the map.
+// Google Maps (as nativastu uses outside Russia). Our own marks — the house pin, the wall, later
+// the plan and the red line — are drawn on one layer above the map.
 
 let searchMap: GeoMap | null = null
 let searchReady: Promise<GeoMap | null> | null = null
 let pinCaption: string | undefined
 
 async function makeMap(host: HTMLElement, kind: MapKind, view: View, full: boolean): Promise<GeoMap | null> {
-  return new FreeMap(host, { view, kind, full }, FREE_TEXT)
+  showMapError(host, false)
+  try {
+    await loadMaps()
+  } catch {
+    showMapError(host, true)
+    return null
+  }
+  return new GoogleMap(host, { view, kind, full })
 }
 
-const FREE_TEXT: FreeText = {
-  scheme: 'Map',
-  satellite: 'Satellite',
-  hybrid: 'Hybrid',
-  imagery: 'Imagery © Esri, Maxar, Earthstar Geographics',
-  search: 'Address search © Esri',
-  zoomIn: 'Zoom in',
-  zoomOut: 'Zoom out',
-  whereAmI: 'Where am I',
+/** «The map didn't load» over a map that failed (no internet, a refused key). */
+function showMapError(host: HTMLElement, on: boolean) {
+  const panel = host.parentElement!
+  let box = panel.querySelector<HTMLElement>('.map-error')
+  if (!box && on) {
+    box = document.createElement('div')
+    box.className = 'map-error'
+    box.innerHTML = "<p>The map didn't load.<br />Check your connection and refresh the page.</p>"
+    panel.appendChild(box)
+  }
+  if (box) box.hidden = !on
 }
+// Google loads its script fine and only then refuses a key (wrong key, site not allowed, billing off)
+window.addEventListener('vastu-map-failed', () => [$('searchMap'), $('rpMap')].forEach((h) => showMapError(h, true)))
 
 function initSearchMap(): Promise<GeoMap | null> {
   if (searchReady) return searchReady
@@ -852,7 +863,7 @@ const sd = $('sdrop')
 let sTimer = 0
 let searchSeq = 0
 
-async function doSearch(q: string, submitted = false) {
+async function doSearch(q: string) {
   if (!q) return
   const seq = ++searchSeq
   const m = await initSearchMap()
@@ -860,7 +871,7 @@ async function doSearch(q: string, submitted = false) {
   // a whole country on screen says nothing about the street; a city does
   const near = m.getView().zoom >= 10 ? m.getBounds() : null
   try {
-    const places = await searchPlaces(q, near, submitted)
+    const places = await searchPlaces(q, near)
     if (seq !== searchSeq) return
     if (!places.length) {
       sd.innerHTML = '<div class="si si-empty">Nothing found — tap your building on the map instead</div>'
@@ -879,18 +890,12 @@ async function doSearch(q: string, submitted = false) {
   sd.hidden = false
 }
 
-async function pickPlace(place: Place) {
+function pickPlace(place: Place) {
   sd.hidden = true
   si.value = place.address
   si.blur()
-  const seq = ++searchSeq
-  const ll = await resolvePlace(place)
-  if (seq !== searchSeq) return
-  if (!ll) {
-    sd.innerHTML = "<div class=\"si si-empty\">Couldn't open that address — please try again</div>"
-    sd.hidden = false
-    return
-  }
+  searchSeq++
+  const ll: LatLng = [place.lat, place.lng]
   searchMap?.setView({ center: ll, zoom: 19 })
   setPin(ll, place.address)
 }
@@ -906,12 +911,12 @@ si.addEventListener('input', () => {
 si.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     clearTimeout(sTimer)
-    doSearch(si.value.trim(), true)
+    doSearch(si.value.trim())
   }
 })
 $('searchBtn').addEventListener('click', () => {
   clearTimeout(sTimer)
-  doSearch(si.value.trim(), true)
+  doSearch(si.value.trim())
 })
 document.addEventListener('click', (e) => {
   if (!(e.target instanceof Element && e.target.closest('.swrap'))) sd.hidden = true
