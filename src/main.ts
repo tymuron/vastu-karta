@@ -5,7 +5,6 @@ import {
   escapeHtml,
   loadProvider,
   providerFor,
-  resolvePlace,
   reverseAddress,
   searchPlaces,
   startView,
@@ -14,7 +13,7 @@ import {
   type Region,
 } from './mapkit'
 import type { GeoMap, Grabber, MapKind, Provider, View } from './maps/base'
-import { FreeMap, type FreeText } from './maps/free'
+import { GoogleMap } from './maps/google'
 import { YandexMap } from './maps/yandex'
 import { pdfToDataUrl } from './pdf'
 import { CONTOUR, drawResult, type Layers } from './result'
@@ -640,8 +639,8 @@ document.addEventListener('keydown', (e) => {
 })
 
 // ───────────────────────────── 4 · your house · 5 · the wall with the windows ─────────────────────────────
-// Russia → Yandex (as on nativastu), abroad → free maps (OpenStreetMap / Esri). Our own marks —
-// the house pin, the wall, later the plan and the red line — are drawn on one layer above either map.
+// Russia → Yandex, abroad → Google (as on nativastu). Our own marks — the house pin, the wall,
+// later the plan and the red line — are drawn on one layer above either map.
 
 let searchMap: GeoMap | null = null
 let searchProvider: Provider | null = null
@@ -656,18 +655,7 @@ async function makeMap(host: HTMLElement, provider: Provider, kind: MapKind, vie
     showMapError(host, true)
     return null
   }
-  return provider === 'yandex' ? new YandexMap(host, { view, kind, full }) : new FreeMap(host, { view, kind, full }, FREE_TEXT)
-}
-
-const FREE_TEXT: FreeText = {
-  scheme: 'Схема',
-  satellite: 'Спутник',
-  hybrid: 'Гибрид',
-  imagery: 'Снимки © Esri, Maxar, Earthstar Geographics',
-  search: 'Поиск адресов © Esri',
-  zoomIn: 'Приблизить',
-  zoomOut: 'Отдалить',
-  whereAmI: 'Где я',
+  return provider === 'yandex' ? new YandexMap(host, { view, kind, full }) : new GoogleMap(host, { view, kind, full })
 }
 
 /** «The map didn't load» over a map that failed (no internet, a refused key). */
@@ -682,6 +670,8 @@ function showMapError(host: HTMLElement, on: boolean) {
   }
   if (box) box.hidden = !on
 }
+// Google loads its script fine and only then refuses a key (wrong key, site not allowed, billing off)
+window.addEventListener('vastu-map-failed', () => [$('searchMap'), $('rpMap')].forEach((h) => showMapError(h, true)))
 
 function initSearchMap(): Promise<GeoMap | null> {
   const provider = providerFor(region)
@@ -909,7 +899,7 @@ const sd = $('sdrop')
 let sTimer = 0
 let searchSeq = 0
 
-async function doSearch(q: string, submitted = false) {
+async function doSearch(q: string) {
   if (!q) return
   const seq = ++searchSeq
   const m = await initSearchMap()
@@ -917,7 +907,7 @@ async function doSearch(q: string, submitted = false) {
   // a whole country on screen says nothing about the street; a city does
   const near = m.getView().zoom >= 10 ? m.getBounds() : null
   try {
-    const places = await searchPlaces(providerFor(region), q, near, submitted)
+    const places = await searchPlaces(providerFor(region), q, near)
     if (seq !== searchSeq) return
     if (!places.length) {
       sd.innerHTML = '<div class="si si-empty">Ничего не найдено — нажмите на свой дом на карте</div>'
@@ -936,18 +926,12 @@ async function doSearch(q: string, submitted = false) {
   sd.hidden = false
 }
 
-async function pickPlace(place: Place) {
+function pickPlace(place: Place) {
   sd.hidden = true
   si.value = place.address
   si.blur()
-  const seq = ++searchSeq
-  const ll = await resolvePlace(place)
-  if (seq !== searchSeq) return
-  if (!ll) {
-    sd.innerHTML = '<div class="si si-empty">Не удалось открыть адрес — попробуйте ещё раз</div>'
-    sd.hidden = false
-    return
-  }
+  searchSeq++
+  const ll: LatLng = [place.lat, place.lng]
   searchMap?.setView({ center: ll, zoom: 19 })
   setPin(ll, place.address)
 }
@@ -963,12 +947,12 @@ si.addEventListener('input', () => {
 si.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     clearTimeout(sTimer)
-    doSearch(si.value.trim(), true)
+    doSearch(si.value.trim())
   }
 })
 $('searchBtn').addEventListener('click', () => {
   clearTimeout(sTimer)
-  doSearch(si.value.trim(), true)
+  doSearch(si.value.trim())
 })
 document.addEventListener('click', (e) => {
   if (!(e.target instanceof Element && e.target.closest('.swrap'))) sd.hidden = true

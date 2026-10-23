@@ -611,7 +611,7 @@ button.si:hover, button.si:focus-visible { background: var(--cream); color: var(
 
 .lmap { background: #DDD6CC; }
 #searchMap { flex: 1; min-height: 0; }
-/* our layer over the Yandex / free map: the pin, the wall, the plan, the red line */
+/* our layer over the Yandex / Google map: the pin, the wall, the plan, the red line */
 .map-overlay { position: absolute; left: 0; top: 0; pointer-events: none; }
 #searchMap.drawing, #searchMap.drawing * { cursor: crosshair !important; }
 .map-can-grab, .map-can-grab * { cursor: grab !important; }
@@ -667,36 +667,11 @@ body[data-step="4"] .guide, body[data-step="5"] .guide, body[data-step="6"] .gui
   80% { transform: translateX(2px); }
 }
 
-/* leaflet, in the brand */
-.leaflet-container { font-family: var(--sans); }
-.leaflet-bar { border: none !important; border-radius: var(--r) !important; box-shadow: 0 4px 14px rgba(66, 35, 38, .22) !important; }
-.leaflet-bar a { width: 36px !important; height: 36px !important; line-height: 34px !important; color: var(--burgundy) !important; font-size: 20px !important; }
-.leaflet-bar a:hover { background: var(--cream) !important; }
-.leaflet-control-attribution { font-size: 10px; background: rgba(244, 242, 237, .8) !important; color: var(--muted); }
-.leaflet-control-attribution a { color: var(--burgundy); }
-.map-types {
-  display: flex;
-  background: var(--white);
-  border-radius: var(--r);
-  box-shadow: 0 4px 14px rgba(66, 35, 38, .22);
-  overflow: hidden;
-}
-.map-types button {
-  padding: 9px 13px;
-  border: none;
-  background: none;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-  color: var(--burgundy);
-  cursor: pointer;
-}
-.map-types button + button { border-left: 1px solid var(--line); }
-.map-types button.on { background: var(--burgundy); color: var(--gold); }
+/* «где я» on the Google map, sized and spaced like Google's own controls */
 .map-geo {
-  width: 36px;
-  height: 36px;
+  margin: 10px;
+  width: 40px;
+  height: 40px;
   display: grid;
   place-items: center;
   background: var(--white);

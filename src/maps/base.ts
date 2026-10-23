@@ -1,4 +1,4 @@
-// One map surface for both providers: Yandex in Russia (as on nativastu), free maps abroad.
+// One map surface for both providers: Yandex in Russia, Google abroad (as on nativastu).
 // The provider draws tiles and its own buttons; everything of ours — the house pin, the wall,
 // the plan, the red line — is drawn on one canvas above the tiles, so it looks and behaves the
 // same on both. Fingers on the pin or the plan are held back from the map, so it doesn't pan.
@@ -7,7 +7,7 @@ import { distance } from '../geo'
 
 export type LatLng = [number, number]
 export type Region = 'ru' | 'abroad'
-export type Provider = 'yandex' | 'free'
+export type Provider = 'yandex' | 'google'
 export type MapKind = 'scheme' | 'satellite' | 'hybrid'
 export interface Pt {
   x: number

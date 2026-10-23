@@ -1,31 +1,26 @@
 // Which map serves whom, address search on top of it, and where the map opens.
-// Russia → Yandex (as on nativastu); everywhere else → free maps (OpenStreetMap / Esri, Esri search,
-// Nominatim as its fallback).
+// Russia → Yandex, everywhere else → Google — as on nativastu. No other map is used.
 
 import type { LatLng, Provider, Region } from './maps/base'
-import { freeResolve, freeReverse, freeSearch } from './maps/free'
+import { googleReverse, googleSearch, loadGoogle } from './maps/google'
 import { loadYandex, yandexReverse, yandexSearch } from './maps/yandex'
 
 export type { LatLng, Region } from './maps/base'
 
-export const providerFor = (region: Region): Provider => (region === 'ru' ? 'yandex' : 'free')
+export const providerFor = (region: Region): Provider => (region === 'ru' ? 'yandex' : 'google')
 
-export const loadProvider = (p: Provider) => (p === 'yandex' ? loadYandex('ru') : Promise.resolve())
+export const loadProvider = (p: Provider) => (p === 'yandex' ? loadYandex('ru') : loadGoogle('ru'))
 
 export interface Place {
   /** full address line, street first */
   address: string
-  lat?: number
-  lng?: number
-  /** Esri suggestion key, turned into coordinates when picked */
-  magicKey?: string
+  lat: number
+  lng: number
 }
 
-/** Up to 5 places — near the visible map, and with the house number typed ranked first.
- *  `submitted`: «Найти» or Enter was pressed, not just typing. */
-export async function searchPlaces(p: Provider, q: string, near: [LatLng, LatLng] | null, submitted: boolean): Promise<Place[]> {
-  const centre = near ? ([(near[0][0] + near[1][0]) / 2, (near[0][1] + near[1][1]) / 2] as LatLng) : null
-  const list: Place[] = p === 'yandex' ? await yandexSearch(q, near) : await freeSearch(q, centre, 'ru', submitted)
+/** Up to 5 places — near the visible map, and with the house number typed ranked first. */
+export async function searchPlaces(p: Provider, q: string, near: [LatLng, LatLng] | null): Promise<Place[]> {
+  const list: Place[] = p === 'yandex' ? await yandexSearch(q, near) : await googleSearch(q, near)
   const seen = new Set<string>()
   const uniq = list.filter((x) => !seen.has(x.address) && seen.add(x.address))
   const nums = q.match(/\d+[а-яa-z]?/gi) ?? []
@@ -33,20 +28,10 @@ export async function searchPlaces(p: Provider, q: string, near: [LatLng, LatLng
   return [...uniq.filter((x) => hasNums(x.address)), ...uniq.filter((x) => !hasNums(x.address))].slice(0, 5)
 }
 
-/** Coordinates of a picked place (free-map suggestions come without them). */
-export async function resolvePlace(place: Place): Promise<LatLng | null> {
-  if (place.lat != null && place.lng != null) return [place.lat, place.lng]
-  try {
-    return await freeResolve(place, 'ru')
-  } catch {
-    return null
-  }
-}
-
 /** Address line of the building at a point (street first). */
 export async function reverseAddress(p: Provider, ll: LatLng): Promise<string | null> {
   try {
-    return p === 'yandex' ? await yandexReverse(ll) : await freeReverse(ll, 'ru')
+    return p === 'yandex' ? await yandexReverse(ll) : await googleReverse(ll)
   } catch {
     return null
   }

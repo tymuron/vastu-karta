@@ -6,8 +6,8 @@
 #
 #   git subtree push --prefix=scratch/vastu-map-builder vastu-karta main
 #
-# Maps: Yandex for Russia (browser key in src/config.ts, locked to this site by HTTP Referer);
-# free OpenStreetMap / Esri maps abroad, keyless. No environment variables are needed.
+# Maps: Yandex for Russia, Google abroad; their browser keys are in src/config.ts (MAP_KEYS),
+# locked to this site in the providers' consoles. No environment variables are needed.
 # No SPA rewrite on purpose: the page has no client-side routes, and a catch-all would
 # answer missing assets with index.html (200) and hide broken deploys.
 services:

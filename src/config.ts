@@ -23,11 +23,13 @@ export const LINKS = {
 }
 
 /**
- * Yandex Maps key, used for flats in Russia (as on nativastu). A browser key: it sits in the
- * page by design and is locked by HTTP Referer in the Yandex console (tymur0n@yandex.ru,
- * Key #1 — JavaScript API + Geocoder, free plan: 1,000 address lookups a day).
- * Flats abroad use free maps (OpenStreetMap / Esri) that need no key.
+ * Map keys — browser keys: they sit in the page by design and are locked to our sites.
+ * yandex — flats in Russia. Yandex console (tymur0n@yandex.ru), Key #1 — JavaScript API +
+ *          Geocoder, locked by HTTP Referer, free plan: 1,000 address lookups a day.
+ * google — flats abroad. Google Cloud (tymurchystiakov07@gmail.com) — Maps JavaScript API +
+ *          Geocoding API, locked to our sites. Without it Google shows no map at all.
  */
 export const MAP_KEYS = {
   yandex: '4961d40e-6cdf-4c4b-a85d-f073ab5d7646',
+  google: 'AIzaSyBxMDuvIyP07j_9PP33vM5xRj8dn4R8Cpo',
 }
