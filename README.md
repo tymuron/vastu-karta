@@ -27,6 +27,9 @@ it on phones, so its map step is split in two («Ваш дом» + «Стена 
 7. **Васту Карта** — nativastu's layers: 8 sectors, axes and labels, Brahmasthan 1/9 or by
    shape, Brahmabindu 1/81, inflow/outflow, five elements with shares, deviation caption,
    saturation, PNG export (share sheet on phones). Same switching rules as the original.
+   The map opens with «Брахмастан по форме квартиры» on (Anna's decision, 7 Nov 2026; until
+   then it opened with the 1/9 square, which stays a switch). Saved progress keeps whatever
+   switches were saved.
 
 On phones, steps 3–6 fit one screen: the plan or map on top, the instruction written on it,
 only that step's buttons below. «Далее» without what the step needs says why on the map.
