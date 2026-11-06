@@ -24,6 +24,9 @@ changes from it step for step, minding the numbering below.
 So in `src/main.ts` every step number is one lower than in the Russian `main.ts` from the
 outline on, and `style.css` hides the sidebar on phones for `data-step="3"` (RU: `"4"`).
 
+Like the Russian copy, the map opens with «Brahmasthan by the home's shape» on (Anna's
+decision, 7 Nov 2026; until then it opened with the 1/9 square, which stays a switch).
+
 ## What differs from the Russian copy
 
 - All copy in English (British spelling): `index.html`, `src/main.ts` (guide strip, warnings,
